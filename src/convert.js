@@ -26,7 +26,7 @@
   }
 
   function processTextNode(node) {
-    if (node.parentElement.closest(`.${CLASS_NAME}, .bionic-processed, script, style, noscript, textarea, input`)) return;
+    if (!node.parentElement || node.parentElement.closest(`.${CLASS_NAME}, .bionic-processed, script, style, noscript, textarea, input`)) return;
     const text = node.nodeValue;
     if (!text.trim()) return;
 
