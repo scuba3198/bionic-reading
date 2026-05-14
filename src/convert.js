@@ -26,17 +26,23 @@
   }
 
   function processTextNode(node) {
-    if (!node.parentElement || node.parentElement.closest(`.${CLASS_NAME}, .bionic-processed, script, style, noscript, textarea, input`)) return;
-    const text = node.nodeValue;
-    if (!text.trim()) return;
+    try {
+      if (!node.parentElement || typeof node.parentElement.closest !== 'function') return;
+      if (node.parentElement.closest(`.${CLASS_NAME}, .bionic-processed, script, style, noscript, textarea, input`)) return;
+      
+      const text = node.nodeValue;
+      if (!text || !text.trim()) return;
 
-    const words = text.split(/(\s+)/);
-    const transformed = words.map(w => w.trim() ? highlightWord(w) : w).join("");
-    
-    const span = document.createElement("span");
-    span.className = "bionic-processed";
-    span.innerHTML = transformed;
-    node.replaceWith(span);
+      const words = text.split(/(\s+)/);
+      const transformed = words.map(w => w.trim() ? highlightWord(w) : w).join("");
+      
+      const span = document.createElement("span");
+      span.className = "bionic-processed";
+      span.innerHTML = transformed;
+      node.replaceWith(span);
+    } catch (e) {
+      // Silently skip nodes that cause DOM errors during processing
+    }
   }
 
   function walkAndProcess() {
