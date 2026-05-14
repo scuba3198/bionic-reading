@@ -15,6 +15,14 @@
   },
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/convert.js"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
   "action": {
     "default_popup": "src/popup.html"
   }

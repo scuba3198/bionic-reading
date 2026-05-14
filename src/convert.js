@@ -1,4 +1,4 @@
-(function(targetState) {
+(async function(targetState) {
   const CLASS_NAME = "br-bold";
   const STYLE_ID = "bionic-reading-styles";
 
@@ -43,9 +43,7 @@
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     let node;
     const nodes = [];
-    while (node = walker.nextNode()) {
-      nodes.push(node);
-    }
+    while (node = walker.nextNode()) nodes.push(node);
     nodes.forEach(processTextNode);
   }
 
@@ -59,29 +57,37 @@
             const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
             let textNode;
             while (textNode = walker.nextNode()) newNodes.push(textNode);
-          } else if (node.nodeType === Node.TEXT_NODE) {
-            newNodes.push(node);
-          }
+          } else if (node.nodeType === Node.TEXT_NODE) newNodes.push(node);
         });
       });
       if (newNodes.length > 0) newNodes.forEach(processTextNode);
     });
-
     window.bionicObserver.observe(document.body, { childList: true, subtree: true });
   }
 
-  // Execution Logic
-  const style = injectStyles();
+  // Self-Initialization Logic
+  let active = targetState;
   
-  if (targetState === false) {
-    style.disabled = true;
-    return;
+  if (active === undefined && chrome.runtime?.id) {
+    try {
+      const { tabId } = await chrome.runtime.sendMessage({ action: "getTabId" });
+      if (tabId) {
+        const key = `bionic_active_${tabId}`;
+        const data = await chrome.storage.local.get(key);
+        active = !!data[key];
+      }
+    } catch (e) { /* Extension context invalidated or not yet ready */ }
   }
 
-  style.disabled = false;
-  if (!document.body.classList.contains("bionic-reading-processed")) {
-    walkAndProcess();
-    observeChanges();
-    document.body.classList.add("bionic-reading-processed");
+  const style = injectStyles();
+  if (active === false) {
+    style.disabled = true;
+  } else if (active === true) {
+    style.disabled = false;
+    if (!document.body.classList.contains("bionic-reading-processed")) {
+      walkAndProcess();
+      observeChanges();
+      document.body.classList.add("bionic-reading-processed");
+    }
   }
-})(typeof bionicTargetState !== 'undefined' ? bionicTargetState : true);
+})(typeof bionicTargetState !== 'undefined' ? bionicTargetState : undefined);
