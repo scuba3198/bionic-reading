@@ -70,19 +70,35 @@
 
   function observeChanges() {
     if (window.bionicObserver) return;
+    
+    window.bionicBuffer = new Set();
+    window.bionicTimeout = null;
+
+    const processBuffer = () => {
+      window.bionicBuffer.forEach(node => processTextNode(node));
+      window.bionicBuffer.clear();
+      window.bionicTimeout = null;
+    };
+
     window.bionicObserver = new MutationObserver((mutations) => {
-      const newNodes = [];
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
             const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
             let textNode;
-            while (textNode = walker.nextNode()) newNodes.push(textNode);
-          } else if (node.nodeType === Node.TEXT_NODE) newNodes.push(node);
+            while (textNode = walker.nextNode()) window.bionicBuffer.add(textNode);
+          } else if (node.nodeType === Node.TEXT_NODE) {
+            window.bionicBuffer.add(node);
+          }
         });
       });
-      if (newNodes.length > 0) newNodes.forEach(processTextNode);
+
+      if (window.bionicBuffer.size > 0) {
+        if (window.bionicTimeout) clearTimeout(window.bionicTimeout);
+        window.bionicTimeout = setTimeout(processBuffer, 100);
+      }
     });
+
     window.bionicObserver.observe(document.body, { childList: true, subtree: true });
   }
 
