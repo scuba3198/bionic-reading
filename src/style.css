@@ -147,6 +147,16 @@ button.active {
   border: 1px solid var(--accent);
 }
 
+.shortcut-note {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 10px 0;
+  letter-spacing: 0.1em;
+  opacity: 0.8;
+}
+
 .footer {
   font-family: var(--mono);
   font-size: 0.6rem;
