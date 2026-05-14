@@ -2,7 +2,7 @@
 
 Enhance your reading experience with this high-performance Chrome extension that applies "Bionic Reading" techniques to any website. It uses a sophisticated **"Cyber-Optical"** design system and a non-destructive, high-precision processing engine.
 
-![Release Version](https://img.shields.io/badge/version-1.0.0-2dd4bf?style=for-the-badge)
+![Release Version](https://img.shields.io/badge/version-1.1.1-2dd4bf?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-0f172a?style=for-the-badge)
 
 ## ✨ Features
