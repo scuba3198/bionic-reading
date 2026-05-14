@@ -48,3 +48,14 @@ btn_active.addEventListener("click", async () => {
 
 // Initialize UI
 updateUI();
+
+// Listen for storage changes (e.g. from keyboard shortcuts)
+chrome.storage.onChanged.addListener(async (changes) => {
+  const tab = await getCurrentTab();
+  if (!tab?.id) return;
+  
+  const key = `bionic_active_${tab.id}`;
+  if (changes[key]) {
+    updateUI();
+  }
+});
