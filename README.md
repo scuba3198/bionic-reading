@@ -24,7 +24,7 @@ Enhance your reading experience with this high-performance Chrome extension that
 
 1. Click the **Bionic Reading** icon in your browser toolbar.
 2. Click **"Engage Engine"** to activate the bionic enhancement.
-3. The "Engine Status" will switch to **ACTIVE**, and all text on the current page (and future pages) will be augmented.
+3. The "Engine Status" will switch to **ACTIVE**, and all text on the current page will be augmented.
 4. Click **"Disengage"** to return to standard reading mode.
 
 ## 🎨 Design Philosophy
