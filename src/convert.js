@@ -2,6 +2,14 @@
   const CLASS_NAME = "br-bold";
   const STYLE_ID = "bionic-reading-styles";
 
+  const STOP_WORDS = new Set([
+    // English
+    "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it", "for", "not", "on", "with", "he", "as", "you", "do", "at", 
+    "this", "but", "his", "by", "from", "they", "we", "say", "her", "she", "or", "an", "will", "my", "one", "all", "would", "there", "their", "what",
+    // German
+    "der", "die", "das", "und", "ist", "in", "zu", "den", "auf", "mit", "von", "sich", "als", "auch", "es", "ein", "dem", "aus", "des", "wie", "sie", "im"
+  ]);
+
   function injectStyles() {
     let style = document.getElementById(STYLE_ID);
     if (!style) {
@@ -27,12 +35,20 @@
     });
   }
 
+  // Typo1 algorithm from patent DE102017112916A1
+  function getFixationLength(wordLength) {
+    if (wordLength <= 3) return 1;
+    if (wordLength === 4) return 2;
+    // TYPO1: 3/5 of the start of each word
+    return Math.ceil(wordLength * 0.6);
+  }
+
   function highlightWord(word) {
     if (/\p{Extended_Pictographic}/u.test(word)) return word;
-    if (/\d/.test(word)) return word;
+    if (/\d/.test(word)) return word; // As per patent: numbers are not highlighted
 
-    // Separate punctuation from the core word
-    const match = word.match(/^([^a-zA-Z0-9]*)(.*?)([^a-zA-Z0-9]*)$/);
+    // Separate punctuation from the core word using Unicode property escapes
+    const match = word.match(/^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u);
     if (!match) return escapeHTML(word);
 
     const [_, leading, core, trailing] = match;
@@ -42,7 +58,13 @@
       return leading + core.split("-").map(highlightWord).join("-") + trailing;
     }
 
-    const mid = core.length <= 3 ? 1 : Math.floor(core.length / 2);
+    // --- Intelligent Mode: Bypass Stop Words ---
+    if (STOP_WORDS.has(core.toLowerCase())) {
+      return escapeHTML(word);
+    }
+    // -------------------------------------------
+
+    const mid = getFixationLength(core.length);
     
     return escapeHTML(leading) + 
            `<span class="${CLASS_NAME}">${escapeHTML(core.slice(0, mid))}</span>` + 
