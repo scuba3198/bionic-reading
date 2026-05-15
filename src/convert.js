@@ -29,12 +29,25 @@
 
   function highlightWord(word) {
     if (/\p{Extended_Pictographic}/u.test(word)) return word;
-    if (/\d/.test(word) || word.length < 2) return word;
-    if (word.includes("-")) {
-      return word.split("-").map(highlightWord).join("-");
+    if (/\d/.test(word)) return word;
+
+    // Separate punctuation from the core word
+    const match = word.match(/^([^a-zA-Z0-9]*)(.*?)([^a-zA-Z0-9]*)$/);
+    if (!match) return escapeHTML(word);
+
+    const [_, leading, core, trailing] = match;
+    if (!core || core.length < 2) return escapeHTML(word);
+
+    if (core.includes("-")) {
+      return leading + core.split("-").map(highlightWord).join("-") + trailing;
     }
-    const mid = word.length <= 3 ? 1 : Math.floor(word.length / 2);
-    return `<span class="${CLASS_NAME}">${escapeHTML(word.slice(0, mid))}</span>${escapeHTML(word.slice(mid))}`;
+
+    const mid = core.length <= 3 ? 1 : Math.floor(core.length / 2);
+    
+    return escapeHTML(leading) + 
+           `<span class="${CLASS_NAME}">${escapeHTML(core.slice(0, mid))}</span>` + 
+           escapeHTML(core.slice(mid)) + 
+           escapeHTML(trailing);
   }
 
   function processTextNode(node) {
