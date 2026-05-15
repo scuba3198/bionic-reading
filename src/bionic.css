@@ -1,0 +1,5 @@
+/* src/bionic.css */
+body.bionic-is-active .br-bold {
+  font-weight: 700 !important;
+  display: inline;
+}

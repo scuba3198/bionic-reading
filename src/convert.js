@@ -1,6 +1,5 @@
 (async function(targetState) {
   const CLASS_NAME = "br-bold";
-  const STYLE_ID = "bionic-reading-styles";
 
   const STOP_WORDS = new Set([
     // English
@@ -9,19 +8,6 @@
     // German
     "der", "die", "das", "und", "ist", "in", "zu", "den", "auf", "mit", "von", "sich", "als", "auch", "es", "ein", "dem", "aus", "des", "wie", "sie", "im"
   ]);
-
-  function injectStyles() {
-    let style = document.getElementById(STYLE_ID);
-    if (!style) {
-      style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = `
-        .${CLASS_NAME} { font-weight: 700 !important; display: inline; }
-      `;
-      document.head.appendChild(style);
-    }
-    return style;
-  }
 
   function escapeHTML(str) {
     return str.replace(/[&<>"']/g, function(m) {
@@ -151,15 +137,22 @@
     } catch (e) { /* Extension context invalidated or not yet ready */ }
   }
 
-  const style = injectStyles();
   if (active === false) {
-    style.disabled = true;
-  } else if (active === true) {
-    style.disabled = false;
-    if (!document.body.classList.contains("bionic-reading-processed")) {
-      walkAndProcess();
-      observeChanges();
-      document.body.classList.add("bionic-reading-processed");
+    document.body.classList.remove("bionic-is-active");
+    if (window.bionicObserver) {
+      window.bionicObserver.disconnect();
+      window.bionicObserver = null;
     }
+    if (window.bionicTimeout) {
+      clearTimeout(window.bionicTimeout);
+      window.bionicTimeout = null;
+    }
+    if (window.bionicBuffer) {
+      window.bionicBuffer.clear();
+    }
+  } else if (active === true) {
+    document.body.classList.add("bionic-is-active");
+    walkAndProcess();
+    observeChanges();
   }
 })(typeof bionicTargetState !== 'undefined' ? bionicTargetState : undefined);
