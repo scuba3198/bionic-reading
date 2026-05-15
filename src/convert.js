@@ -33,7 +33,7 @@
     if (word.includes("-")) {
       return word.split("-").map(highlightWord).join("-");
     }
-    const mid = word.length <= 3 ? 1 : Math.round(word.length / 2);
+    const mid = word.length <= 3 ? 1 : Math.floor(word.length / 2);
     return `<span class="${CLASS_NAME}">${escapeHTML(word.slice(0, mid))}</span>${escapeHTML(word.slice(mid))}`;
   }
 
