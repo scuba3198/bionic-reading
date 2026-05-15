@@ -33,7 +33,7 @@ Inspired by "Augmented Intelligence" and "Cyber-Precision," the interface uses a
 
 ## 🤝 Credits
 
-Originally developed by [@aktoriukas](https://github.com/aktoriukas). This version is a comprehensive refactor featuring a new engine and design system.
+Originally developed by [@gediminas.strumila](https://chromewebstore.google.com/detail/bionic-reading/jcfpacpddhgcfenlmaacfabpfffdplhl). This version is a comprehensive refactor featuring a new engine and design system.
 
 ## 👤 Author
 
