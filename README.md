@@ -2,11 +2,12 @@
 
 Enhance your reading experience with this high-performance Chrome extension that applies "Bionic Reading" techniques to any website. It uses a sophisticated **"Cyber-Optical"** design system and a non-destructive, high-precision processing engine.
 
-![Release Version](https://img.shields.io/badge/version-1.1.3-2dd4bf?style=for-the-badge)
+![Release Version](https://img.shields.io/badge/version-1.1.4-2dd4bf?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-0f172a?style=for-the-badge)
 
 ## ✨ Features
 
+- **💡 Intelligent Mode (Patent Aligned)**: Automatically skips high-frequency filler words (stop words) across multiple languages, exactly as prescribed by the official Bionic Reading patent, to dramatically reduce visual clutter and eye strain.
 - **🚀 High-Performance Processing**: Uses a `TreeWalker`-based DOM engine that is 10X faster and safer than traditional `innerHTML` approaches.
 - **🔄 SPA Support**: Automatically detects and processes new content on dynamic sites like Twitter, YouTube, and Facebook using `MutationObserver`.
 - **🌙 Cyber-Optical UI**: A premium, "Augmented Reality" inspired interface featuring Glassmorphism, Blueprint borders, and IBM Plex Mono typography.
