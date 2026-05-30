@@ -1,5 +1,49 @@
 (async function(targetState) {
   const CLASS_NAME = "br-bold";
+  
+  const EXCLUDED_SELECTOR = [
+    `.${CLASS_NAME}`,
+    '.bionic-processed',
+    'script',
+    'style',
+    'noscript',
+    'textarea',
+    'input',
+    'select',
+    'button',
+    'nav',
+    'aside',
+    'footer',
+    'header',
+    '[role="navigation"]',
+    '[role="complementary"]',
+    '[role="contentinfo"]',
+    '[role="banner"]',
+    '[role="search"]',
+    '.nav',
+    '.navbar',
+    '.sidebar',
+    '.footer',
+    '.header',
+    '.menu',
+    '.navigation',
+    '.ad',
+    '.ads',
+    '.ad-container',
+    '.advertisement',
+    '.social-share',
+    '.share-buttons',
+    '.comments',
+    '#comments',
+    '.cookie-banner',
+    '.cookie-notice',
+    '.consent-banner',
+    '#cookie-consent'
+  ].join(', ');
+
+  const MAIN_SELECTOR = 'main, article, [role="main"], .main-content, #main-content, #content';
+
+  let hasMainContainer = null;
 
   const STOP_WORDS = new Set([
     // English
@@ -61,7 +105,15 @@
   function processTextNode(node) {
     try {
       if (!node.parentElement || typeof node.parentElement.closest !== 'function') return;
-      if (node.parentElement.closest(`.${CLASS_NAME}, .bionic-processed, script, style, noscript, textarea, input`)) return;
+      
+      // Exclude layout elements and navigation/advertisement/cookie noise
+      if (node.parentElement.closest(EXCLUDED_SELECTOR)) return;
+      
+      // If the page has a main content/article container, ignore text nodes outside of it
+      if (hasMainContainer === null) {
+        hasMainContainer = document.querySelector(MAIN_SELECTOR) !== null;
+      }
+      if (hasMainContainer && !node.parentElement.closest(MAIN_SELECTOR)) return;
       
       const text = node.nodeValue;
       if (!text || text.length < 2 || !text.trim()) return;
