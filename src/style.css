@@ -128,16 +128,16 @@ button::after {
   transition: 0.5s;
 }
 
-button:hover::after {
+button:hover:not(:disabled)::after {
   left: 100%;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   transform: scale(1.02);
   box-shadow: 0 0 20px var(--accent-glow);
 }
 
-button:active {
+button:active:not(:disabled) {
   transform: scale(0.98);
 }
 
@@ -145,6 +145,20 @@ button.active {
   background: transparent;
   color: var(--accent);
   border: 1px solid var(--accent);
+}
+
+button:disabled {
+  background: var(--panel);
+  color: var(--text-muted);
+  border: 1px dashed rgba(45, 212, 191, 0.2);
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+  opacity: 0.6;
+}
+
+button:disabled::after {
+  display: none;
 }
 
 .shortcut-note {
