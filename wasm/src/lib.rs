@@ -6,10 +6,12 @@ use wasm_bindgen::prelude::*;
 
 const STOP_WORDS: &[&str] = &[
     // English
-    "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it", "for", "not", "on", "with", "he", "as", "you", "do", "at", 
-    "this", "but", "his", "by", "from", "they", "we", "say", "her", "she", "or", "an", "will", "my", "one", "all", "would", "there", "their", "what",
+    "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it", "for", "not", "on",
+    "with", "he", "as", "you", "do", "at", "this", "but", "his", "by", "from", "they", "we", "say",
+    "her", "she", "or", "an", "will", "my", "one", "all", "would", "there", "their", "what",
     // German
-    "der", "die", "das", "und", "ist", "in", "zu", "den", "auf", "mit", "von", "sich", "als", "auch", "es", "ein", "dem", "aus", "des", "wie", "sie", "im"
+    "der", "die", "das", "und", "ist", "in", "zu", "den", "auf", "mit", "von", "sich", "als",
+    "auch", "es", "ein", "dem", "aus", "des", "wie", "sie", "im",
 ];
 
 fn escape_html(s: &str) -> String {
@@ -29,10 +31,10 @@ fn escape_html(s: &str) -> String {
 
 fn is_emoji(c: char) -> bool {
     let val = c as u32;
-    (0x1F300..=0x1F9FF).contains(&val) || 
-    (0x1F600..=0x1F64F).contains(&val) || 
-    (0x1F680..=0x1F6FF).contains(&val) || 
-    (0x2600..=0x27BF).contains(&val)
+    (0x1F300..=0x1F9FF).contains(&val)
+        || (0x1F600..=0x1F64F).contains(&val)
+        || (0x1F680..=0x1F6FF).contains(&val)
+        || (0x2600..=0x27BF).contains(&val)
 }
 
 // Typo1 algorithm from patent DE102017112916A1
@@ -87,10 +89,7 @@ pub fn highlight_word(word: &str) -> String {
     }
 
     if core.contains('-') {
-        let parts: Vec<String> = core
-            .split('-')
-            .map(highlight_word)
-            .collect();
+        let parts: Vec<String> = core.split('-').map(highlight_word).collect();
         return escape_html(&leading) + &parts.join("-") + &escape_html(&trailing);
     }
 
@@ -164,22 +163,34 @@ mod tests {
 
         #[test]
         fn should_bold_two_chars_for_four_letter_words() {
-            assert_eq!(highlight_word("test"), "<span class=\"br-bold\">te</span>st");
+            assert_eq!(
+                highlight_word("test"),
+                "<span class=\"br-bold\">te</span>st"
+            );
         }
 
         #[test]
         fn should_bold_three_chars_for_five_letter_words() {
-            assert_eq!(highlight_word("hello"), "<span class=\"br-bold\">hel</span>lo");
+            assert_eq!(
+                highlight_word("hello"),
+                "<span class=\"br-bold\">hel</span>lo"
+            );
         }
 
         #[test]
         fn should_bold_four_chars_for_six_letter_words() {
-            assert_eq!(highlight_word("bionic"), "<span class=\"br-bold\">bion</span>ic");
+            assert_eq!(
+                highlight_word("bionic"),
+                "<span class=\"br-bold\">bion</span>ic"
+            );
         }
 
         #[test]
         fn should_bold_five_chars_for_seven_letter_words() {
-            assert_eq!(highlight_word("reading"), "<span class=\"br-bold\">readi</span>ng");
+            assert_eq!(
+                highlight_word("reading"),
+                "<span class=\"br-bold\">readi</span>ng"
+            );
         }
 
         #[test]
@@ -199,12 +210,18 @@ mod tests {
 
         #[test]
         fn should_bold_inside_trailing_punctuation() {
-            assert_eq!(highlight_word("hello,"), "<span class=\"br-bold\">hel</span>lo,");
+            assert_eq!(
+                highlight_word("hello,"),
+                "<span class=\"br-bold\">hel</span>lo,"
+            );
         }
 
         #[test]
         fn should_bold_inside_surrounding_punctuation() {
-            assert_eq!(highlight_word("(hello)"), "(<span class=\"br-bold\">hel</span>lo)");
+            assert_eq!(
+                highlight_word("(hello)"),
+                "(<span class=\"br-bold\">hel</span>lo)"
+            );
         }
 
         #[test]
