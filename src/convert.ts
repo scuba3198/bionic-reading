@@ -1,5 +1,13 @@
 import { Effect } from "effect";
 
+declare global {
+  interface Window {
+    bionicObserver?: MutationObserver | null;
+    bionicTimeout?: any;
+    bionicBuffer?: Set<Node>;
+  }
+}
+
 const CLASS_NAME = "br-bold";
 const STYLE_ID = "bionic-reading-styles";
 
@@ -70,10 +78,7 @@ const processTextNodes = (nodes: Node[]) =>
       const parent = node.parentElement;
       if (!parent || typeof parent.closest !== 'function') continue;
       
-      // Exclude layout elements and navigation/advertisement/cookie noise
       if (parent.closest(EXCLUDED_SELECTOR)) continue;
-      
-      // If the page has a main content/article container, ignore text nodes outside of it
       if (hasMainContainer && !parent.closest(MAIN_SELECTOR)) continue;
       
       const text = node.nodeValue;
@@ -121,34 +126,49 @@ const walkAndProcess = Effect.gen(function* () {
 });
 
 const observeChanges = Effect.sync(() => {
-  const observer = new MutationObserver((mutations) => {
-    const newNodes: Node[] = [];
-    
+  if (window.bionicObserver) return;
+
+  window.bionicBuffer = new Set<Node>();
+  window.bionicTimeout = null;
+
+  const processBuffer = () => {
+    if (window.bionicBuffer && window.bionicBuffer.size > 0) {
+      const nodes = Array.from(window.bionicBuffer);
+      window.bionicBuffer.clear();
+      Effect.runFork(
+        processTextNodes(nodes).pipe(
+          Effect.catchAll((err) => Effect.logError("Buffer processing failed", err))
+        )
+      );
+    }
+    window.bionicTimeout = null;
+  };
+
+  window.bionicObserver = new MutationObserver((mutations) => {
+    if (!window.bionicBuffer) return;
+
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
           let textNode = walker.nextNode();
           while (textNode) {
-            newNodes.push(textNode);
+            window.bionicBuffer!.add(textNode);
             textNode = walker.nextNode();
           }
         } else if (node.nodeType === Node.TEXT_NODE) {
-          newNodes.push(node);
+          window.bionicBuffer!.add(node);
         }
       });
     });
 
-    if (newNodes.length > 0) {
-      Effect.runFork(
-        processTextNodes(newNodes).pipe(
-          Effect.catchAll((err) => Effect.logError("Mutation processing failed", err))
-        )
-      );
+    if (window.bionicBuffer.size > 0) {
+      if (window.bionicTimeout) clearTimeout(window.bionicTimeout);
+      window.bionicTimeout = setTimeout(processBuffer, 100);
     }
   });
 
-  observer.observe(document.body, {
+  window.bionicObserver.observe(document.body, {
     childList: true,
     subtree: true,
   });
@@ -166,6 +186,22 @@ const runBionicConversion = Effect.gen(function* () {
     if (style) {
       style.disabled = !bionicActive;
     }
+
+    if (!bionicActive) {
+      if (window.bionicObserver) {
+        window.bionicObserver.disconnect();
+        window.bionicObserver = null;
+      }
+      if (window.bionicTimeout) {
+        clearTimeout(window.bionicTimeout);
+        window.bionicTimeout = null;
+      }
+      if (window.bionicBuffer) {
+        window.bionicBuffer.clear();
+      }
+    } else {
+      yield* observeChanges;
+    }
     return;
   }
 
@@ -176,8 +212,10 @@ const runBionicConversion = Effect.gen(function* () {
     style.disabled = !bionicActive;
   }
 
-  yield* walkAndProcess;
-  yield* observeChanges;
+  if (bionicActive) {
+    yield* walkAndProcess;
+    yield* observeChanges;
+  }
   
   document.body.classList.add("bionic-reading-processed");
 });
