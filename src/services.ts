@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Data } from "effect";
+import { Context, Effect, Layer, Data, Option } from "effect";
 
 export class StorageError extends Data.TaggedError("StorageError")<{
   readonly message: string;
@@ -23,7 +23,7 @@ export class ChromeStorage extends Context.Tag("ChromeStorage")<
 export class ChromeTabs extends Context.Tag("ChromeTabs")<
   ChromeTabs,
   {
-    readonly getActiveTab: () => Effect.Effect<chrome.tabs.Tab | undefined, TabError>;
+    readonly getActiveTab: () => Effect.Effect<Option.Option<chrome.tabs.Tab>, TabError>;
     readonly executeScript: (tabId: number, files: string[]) => Effect.Effect<void, TabError>;
   }
 >() {}
@@ -51,7 +51,7 @@ export const ChromeTabsLive = Layer.succeed(
       Effect.tryPromise({
         try: async () => {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          return tab;
+          return Option.fromNullable(tab);
         },
         catch: (error) => new TabError({ message: `ChromeTabs.getActiveTab failed: ${error}` }),
       }),

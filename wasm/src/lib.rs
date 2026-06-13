@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+//! High-performance Bionic Reading text formatter compiled to WebAssembly.
+//! Implements the patented Typo1 prefix-bolding algorithm.
+
 use wasm_bindgen::prelude::*;
 
 const STOP_WORDS: &[&str] = &[
@@ -38,28 +42,27 @@ fn get_fixation_length(len: usize) -> usize {
     } else if len == 4 {
         2
     } else {
-        // TYPO1: 3/5 of the start of each word
         ((len as f64) * 0.6).ceil() as usize
     }
 }
 
+/// Highlights a single word by wrapping its prefix in a bold span.
+///
+/// Follows the Typo1 fixation rules and isolates punctuation, skipping digits and stop words.
 #[wasm_bindgen]
 pub fn highlight_word(word: &str) -> String {
     if word.is_empty() {
         return String::new();
     }
 
-    // Skip if word contains pictographic/emoji
     if word.chars().any(is_emoji) {
         return escape_html(word);
     }
 
-    // Skip if word contains digits
     if word.chars().any(|c| c.is_ascii_digit()) {
         return escape_html(word);
     }
 
-    // Separate leading/trailing punctuation using alphanumeric checks (equivalent to unicode \p{L}\p{N})
     let chars: Vec<char> = word.chars().collect();
     let mut start = 0;
     let mut end = chars.len();
@@ -91,7 +94,6 @@ pub fn highlight_word(word: &str) -> String {
         return escape_html(&leading) + &parts.join("-") + &escape_html(&trailing);
     }
 
-    // Intelligent Mode: Bypass Stop Words (case insensitive)
     if STOP_WORDS.contains(&core.to_lowercase().as_str()) {
         return escape_html(&leading) + &escape_html(&core) + &escape_html(&trailing);
     }
@@ -110,6 +112,7 @@ pub fn highlight_word(word: &str) -> String {
         + &escape_html(&trailing)
 }
 
+/// Transforms a full block of text, preserving whitespaces, by highlighting each word.
 #[wasm_bindgen]
 pub fn transform_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len() * 2);
@@ -151,32 +154,74 @@ pub fn transform_text(text: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_highlight_word() {
-        // Patent rules (Typo1)
-        // len <= 3 -> 1
-        assert_eq!(highlight_word("the"), "the"); // Stop word bypasses highlight!
-        assert_eq!(highlight_word("and"), "and"); // Stop word bypasses highlight!
-        assert_eq!(highlight_word("cat"), "<span class=\"br-bold\">c</span>at");
-        // len = 4 -> 2
-        assert_eq!(highlight_word("test"), "<span class=\"br-bold\">te</span>st");
-        // len = 5 -> Math.ceil(5 * 0.6) = 3
-        assert_eq!(highlight_word("hello"), "<span class=\"br-bold\">hel</span>lo");
-        // len = 6 -> Math.ceil(6 * 0.6) = 4
-        assert_eq!(highlight_word("bionic"), "<span class=\"br-bold\">bion</span>ic");
-        // len = 7 -> Math.ceil(7 * 0.6) = 5
-        assert_eq!(highlight_word("reading"), "<span class=\"br-bold\">readi</span>ng");
+    mod highlight_word {
+        use super::*;
+
+        #[test]
+        fn should_bold_one_char_for_three_letter_words() {
+            assert_eq!(highlight_word("cat"), "<span class=\"br-bold\">c</span>at");
+        }
+
+        #[test]
+        fn should_bold_two_chars_for_four_letter_words() {
+            assert_eq!(highlight_word("test"), "<span class=\"br-bold\">te</span>st");
+        }
+
+        #[test]
+        fn should_bold_three_chars_for_five_letter_words() {
+            assert_eq!(highlight_word("hello"), "<span class=\"br-bold\">hel</span>lo");
+        }
+
+        #[test]
+        fn should_bold_four_chars_for_six_letter_words() {
+            assert_eq!(highlight_word("bionic"), "<span class=\"br-bold\">bion</span>ic");
+        }
+
+        #[test]
+        fn should_bold_five_chars_for_seven_letter_words() {
+            assert_eq!(highlight_word("reading"), "<span class=\"br-bold\">readi</span>ng");
+        }
+
+        #[test]
+        fn should_bypass_english_lowercase_stop_words() {
+            assert_eq!(highlight_word("the"), "the");
+        }
+
+        #[test]
+        fn should_bypass_english_capitalized_stop_words() {
+            assert_eq!(highlight_word("The"), "The");
+        }
+
+        #[test]
+        fn should_bypass_german_stop_words() {
+            assert_eq!(highlight_word("der"), "der");
+        }
+
+        #[test]
+        fn should_bold_inside_trailing_punctuation() {
+            assert_eq!(highlight_word("hello,"), "<span class=\"br-bold\">hel</span>lo,");
+        }
+
+        #[test]
+        fn should_bold_inside_surrounding_punctuation() {
+            assert_eq!(highlight_word("(hello)"), "(<span class=\"br-bold\">hel</span>lo)");
+        }
+
+        #[test]
+        fn should_skip_words_containing_digits() {
+            assert_eq!(highlight_word("v1.0.0"), "v1.0.0");
+        }
     }
 
-    #[test]
-    fn test_punctuation_separation() {
-        assert_eq!(highlight_word("hello,"), "<span class=\"br-bold\">hel</span>lo,");
-        assert_eq!(highlight_word("(hello)"), "(<span class=\"br-bold\">hel</span>lo)");
-    }
+    mod transform_text {
+        use super::*;
 
-    #[test]
-    fn test_stop_words() {
-        assert_eq!(highlight_word("The"), "The");
-        assert_eq!(highlight_word("der"), "der");
+        #[test]
+        fn should_preserve_stop_words_and_spaces_and_bold_other_words() {
+            assert_eq!(
+                transform_text("in a test"),
+                "in a <span class=\"br-bold\">te</span>st"
+            );
+        }
     }
 }

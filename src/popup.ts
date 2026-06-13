@@ -1,10 +1,10 @@
-import { Effect } from "effect";
-import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive, StorageError, TabError } from "./services";
+import { Effect, Match, Option } from "effect";
+import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive } from "./services";
 
 const btn_active = document.getElementById("bionic_reading_btn") as HTMLButtonElement | null;
 const status_text = document.getElementById("status_text") as HTMLSpanElement | null;
 
-const updateUI = (bionic_active: boolean) =>
+const updateUI = Effect.fn("updateUI")((bionic_active: boolean) =>
   Effect.sync(() => {
     if (btn_active) {
       btn_active.innerText = bionic_active ? "Disengage" : "Engage Engine";
@@ -17,18 +17,21 @@ const updateUI = (bionic_active: boolean) =>
       status_text.innerText = bionic_active ? "ACTIVE" : "STANDBY";
       status_text.style.color = bionic_active ? "var(--accent)" : "var(--text-muted)";
     }
-  });
+  })
+);
 
-const initUI = Effect.gen(function* () {
+const initUI = Effect.fn("initUI")(function* () {
   const storage = yield* ChromeStorage;
   const tabs = yield* ChromeTabs;
 
   const data = yield* storage.get("bionic_active");
   const bionic_active = !!data.bionic_active;
 
-  const activeTab = yield* tabs.getActiveTab();
-  const url = activeTab?.url;
-  const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
+  const activeTabOption = yield* tabs.getActiveTab();
+  const isSupported = Option.match(activeTabOption, {
+    onNone: () => false,
+    onSome: (tab) => !!(tab.url?.startsWith("http://") || tab.url?.startsWith("https://")),
+  });
 
   if (!isSupported) {
     if (btn_active) {
@@ -46,12 +49,14 @@ const initUI = Effect.gen(function* () {
   }
 });
 
-const handleButtonClick = Effect.gen(function* () {
+const handleButtonClick = Effect.fn("handleButtonClick")(function* () {
   const storage = yield* ChromeStorage;
   const tabs = yield* ChromeTabs;
 
-  const activeTab = yield* tabs.getActiveTab();
-  const url = activeTab?.url;
+  const activeTabOption = yield* tabs.getActiveTab();
+  if (Option.isNone(activeTabOption)) return;
+  const activeTab = activeTabOption.value;
+  const url = activeTab.url;
   const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
 
   if (!isSupported) return;
@@ -61,54 +66,61 @@ const handleButtonClick = Effect.gen(function* () {
 
   yield* storage.set({ bionic_active: newState });
 
-  if (activeTab?.id) {
+  if (activeTab.id) {
     yield* tabs.executeScript(activeTab.id, ["src/convert.js"]);
   }
 });
 
-const program = Effect.gen(function* () {
-  yield* initUI;
+const program = Effect.fn("program")(function* () {
+  yield* initUI();
   
   if (btn_active) {
     btn_active.addEventListener("click", () => {
       Effect.runFork(
-        handleButtonClick.pipe(
+        handleButtonClick().pipe(
           Effect.provide(ChromeStorageLive),
           Effect.provide(ChromeTabsLive),
-          Effect.catchAll((err) => {
-            // Distinct error handling depending on the type
-            switch (err._tag) {
-              case "StorageError":
-                Effect.logError(`Storage transaction failed: ${err.message}`);
-                break;
-              case "TabError":
-                Effect.logError(`Chrome scripting failed: ${err.message}`);
-                break;
-            }
-            return Effect.succeed(null);
-          })
+          Effect.catchAll((err) =>
+            Match.value(err).pipe(
+              Match.tag("StorageError", (e) =>
+                Effect.logError(`Storage transaction failed: ${e.message}`)
+              ),
+              Match.tag("TabError", (e) =>
+                Effect.logError(`Chrome scripting failed: ${e.message}`)
+              ),
+              Match.exhaustive
+            )
+          )
         )
       );
     });
   }
 
-  // Reactive UI update on storage changes (e.g. from keyboard shortcut)
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "local" && changes.bionic_active) {
       const bionic_active = !!changes.bionic_active.newValue;
       Effect.runFork(
         Effect.gen(function* () {
           const tabs = yield* ChromeTabs;
-          const activeTab = yield* tabs.getActiveTab();
-          const url = activeTab?.url;
-          const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
+          const activeTabOption = yield* tabs.getActiveTab();
+          const isSupported = Option.match(activeTabOption, {
+            onNone: () => false,
+            onSome: (tab) => !!(tab.url?.startsWith("http://") || tab.url?.startsWith("https://")),
+          });
           
           if (isSupported) {
             yield* updateUI(bionic_active);
           }
         }).pipe(
           Effect.provide(ChromeTabsLive),
-          Effect.catchAll((err) => Effect.logError(`Active tab checking failed: ${err.message}`))
+          Effect.catchAll((err) =>
+            Match.value(err).pipe(
+              Match.tag("TabError", (e) =>
+                Effect.logError(`Active tab checking failed: ${e.message}`)
+              ),
+              Match.exhaustive
+            )
+          )
         )
       );
     }
@@ -117,12 +129,19 @@ const program = Effect.gen(function* () {
 
 // Run initialization
 Effect.runFork(
-  program.pipe(
+  program().pipe(
     Effect.provide(ChromeStorageLive),
     Effect.provide(ChromeTabsLive),
-    Effect.catchAll((err) => {
-      Effect.logError(`Extension popup initialization failed: ${err.message}`);
-      return Effect.succeed(null);
-    })
+    Effect.catchAll((err) =>
+      Match.value(err).pipe(
+        Match.tag("StorageError", (e) =>
+          Effect.logError(`Extension initialization storage error: ${e.message}`)
+        ),
+        Match.tag("TabError", (e) =>
+          Effect.logError(`Extension initialization tab error: ${e.message}`)
+        ),
+        Match.exhaustive
+      )
+    )
   )
 );

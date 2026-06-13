@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Match } from "effect";
 import { StorageError, TabError } from "./services";
 
 declare global {
@@ -56,65 +56,68 @@ const MAIN_SELECTOR = 'main, article, [role="main"], .main-content, #main-conten
 
 let hasMainContainer: boolean | null = null;
 
-const injectStyles = Effect.sync(() => {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    .${CLASS_NAME} { font-weight: 700 !important; display: inline; }
-  `;
-  document.head.appendChild(style);
-});
+const injectStyles = Effect.fn("injectStyles")(() =>
+  Effect.sync(() => {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+      .${CLASS_NAME} { font-weight: 700 !important; display: inline; }
+    `;
+    document.head.appendChild(style);
+  })
+);
 
-const processTextNodes = (nodes: Node[]) =>
-  Effect.gen(function* () {
-    const validNodes: Node[] = [];
-    const texts: string[] = [];
+const processTextNodes = Effect.fn("processTextNodes")(function* (nodes: Node[]) {
+  const validNodes: Node[] = [];
+  const texts: string[] = [];
 
-    if (hasMainContainer === null) {
-      hasMainContainer = document.querySelector(MAIN_SELECTOR) !== null;
-    }
+  if (hasMainContainer === null) {
+    hasMainContainer = document.querySelector(MAIN_SELECTOR) !== null;
+  }
 
-    for (const node of nodes) {
-      const parent = node.parentElement;
-      if (!parent || typeof parent.closest !== 'function') continue;
-      
-      if (parent.closest(EXCLUDED_SELECTOR)) continue;
-      if (hasMainContainer && !parent.closest(MAIN_SELECTOR)) continue;
-      
-      const text = node.nodeValue;
-      if (!text || text.length < 2 || !text.trim()) continue;
+  for (const node of nodes) {
+    const parent = node.parentElement;
+    if (!parent || typeof parent.closest !== 'function') continue;
+    
+    if (parent.closest(EXCLUDED_SELECTOR)) continue;
+    if (hasMainContainer && !parent.closest(MAIN_SELECTOR)) continue;
+    
+    const text = node.nodeValue;
+    if (!text || text.length < 2 || !text.trim()) continue;
 
-      validNodes.push(node);
-      texts.push(text);
-    }
+    validNodes.push(node);
+    texts.push(text);
+  }
 
-    if (validNodes.length === 0) return;
+  if (validNodes.length === 0) return;
 
-    const response: { htmls?: string[]; error?: string } = yield* Effect.tryPromise({
-      try: () => chrome.runtime.sendMessage({ type: "HIGHLIGHT_TEXTS", texts }),
-      catch: (error) => new TabError({ message: `Failed to send highlight message to background: ${error}` }),
-    });
-
-    if (response.error) {
-      yield* Effect.fail(new TabError({ message: response.error }));
-    }
-
-    if (response.htmls) {
-      for (let i = 0; i < validNodes.length; i++) {
-        const node = validNodes[i];
-        const html = response.htmls[i];
-        
-        const span = document.createElement("span");
-        span.className = "bionic-processed";
-        span.innerHTML = html;
-        
-        node.replaceWith(span);
-      }
-    }
+  const response: { htmls?: string[]; error?: string } = yield* Effect.tryPromise({
+    try: () => chrome.runtime.sendMessage({ type: "HIGHLIGHT_TEXTS", texts }),
+    catch: (error) => new TabError({ message: `Failed to send highlight message to background: ${error}` }),
   });
 
-const walkAndProcess = Effect.gen(function* () {
+  if (response.error) {
+    return yield* Effect.fail(new TabError({ message: response.error }));
+  }
+
+  if (response.htmls) {
+    for (let i = 0; i < validNodes.length; i++) {
+      const node = validNodes[i];
+      const html = response.htmls[i];
+      
+      const span = document.createElement("span");
+      span.className = "bionic-processed";
+      span.innerHTML = html;
+      
+      if (node.parentNode) {
+        node.parentNode.replaceChild(span, node);
+      }
+    }
+  }
+});
+
+const walkAndProcess = Effect.fn("walkAndProcess")(function* () {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
   const nodes: Node[] = [];
   let node = walker.nextNode();
@@ -126,7 +129,7 @@ const walkAndProcess = Effect.gen(function* () {
   yield* processTextNodes(nodes);
 });
 
-const observeChanges = Effect.sync(() => {
+const observeChanges = Effect.fn("observeChanges")(function* () {
   if (window.bionicObserver) return;
 
   window.bionicBuffer = new Set<Node>();
@@ -138,7 +141,14 @@ const observeChanges = Effect.sync(() => {
       window.bionicBuffer.clear();
       Effect.runFork(
         processTextNodes(nodes).pipe(
-          Effect.catchAll((err) => Effect.logError(`Buffer processing failed: ${err.message}`))
+          Effect.catchAll((err) =>
+            Match.value(err).pipe(
+              Match.tag("TabError", (e) =>
+                Effect.logError(`Buffer processing failed: ${e.message}`)
+              ),
+              Match.exhaustive
+            )
+          )
         )
       );
     }
@@ -175,14 +185,14 @@ const observeChanges = Effect.sync(() => {
   });
 });
 
-const runBionicConversion = Effect.gen(function* () {
+const runBionicConversion = Effect.fn("runBionicConversion")(function* () {
   const response = yield* Effect.tryPromise({
     try: () => chrome.storage.local.get("bionic_active"),
     catch: (error) => new StorageError({ message: `Storage read failed: ${error}` }),
   });
   const bionicActive = !!response.bionic_active;
 
-  yield* injectStyles;
+  yield* injectStyles();
   
   const style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
   if (style) {
@@ -190,8 +200,8 @@ const runBionicConversion = Effect.gen(function* () {
   }
 
   if (bionicActive) {
-    yield* walkAndProcess;
-    yield* observeChanges;
+    yield* walkAndProcess();
+    yield* observeChanges();
   } else {
     if (window.bionicObserver) {
       window.bionicObserver.disconnect();
@@ -210,10 +220,17 @@ const runBionicConversion = Effect.gen(function* () {
 });
 
 Effect.runFork(
-  runBionicConversion.pipe(
-    Effect.catchAll((err) => {
-      Effect.logError(`Bionic reading engine execution failed: ${err.message}`);
-      return Effect.succeed(null);
-    })
+  runBionicConversion().pipe(
+    Effect.catchAll((err) =>
+      Match.value(err).pipe(
+        Match.tag("StorageError", (e) =>
+          Effect.logError(`Bionic reading engine storage failed: ${e.message}`)
+        ),
+        Match.tag("TabError", (e) =>
+          Effect.logError(`Bionic reading engine tab message failed: ${e.message}`)
+        ),
+        Match.exhaustive
+      )
+    )
   )
 );
