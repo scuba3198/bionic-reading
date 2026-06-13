@@ -1,9 +1,8 @@
 {
-"update_url": "https://clients2.google.com/service/update2/crx",
-
+  "update_url": "https://clients2.google.com/service/update2/crx",
   "manifest_version": 3,
   "name": "Bionic Reading",
-  "version": "1.1.6",
+  "version": "2.0.0",
   "description": "Make your reading experience more comfortable",
   "icons": {
     "128": "icon128.png",
@@ -15,22 +14,15 @@
   },
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://*/*"],
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/convert.js"],
-      "css": ["src/bionic.css"],
-      "run_at": "document_end",
-      "all_frames": true
-    }
-  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "commands": {
     "toggle-bionic": {
       "suggested_key": {
-        "default": "Alt+B",
-        "mac": "Alt+B"
+        "default": "Alt+B"
       },
-      "description": "Toggle Bionic Reading for the current tab"
+      "description": "Toggle Bionic Reading"
     }
   },
   "action": {
