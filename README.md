@@ -36,6 +36,16 @@ npm install -g wasm-pack
    npm run build
    ```
 
+### Running Tests
+- **Rust WASM Crate**: Run Rust unit tests to verify the Typo1 formatting rules:
+  ```bash
+  npm run test:wasm
+  ```
+- **TypeScript Type Safety**: Verify compile-time type safety:
+  ```bash
+  npx tsc --noEmit
+  ```
+
 ### Loading in Chrome
 1. Open Chrome and navigate to `chrome://extensions/`.
 2. Enable **"Developer mode"** in the top right corner.
