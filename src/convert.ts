@@ -181,30 +181,6 @@ const runBionicConversion = Effect.gen(function* () {
   });
   const bionicActive = !!response.bionic_active;
 
-  if (document.body.classList.contains("bionic-reading-processed")) {
-    const style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-    if (style) {
-      style.disabled = !bionicActive;
-    }
-
-    if (!bionicActive) {
-      if (window.bionicObserver) {
-        window.bionicObserver.disconnect();
-        window.bionicObserver = null;
-      }
-      if (window.bionicTimeout) {
-        clearTimeout(window.bionicTimeout);
-        window.bionicTimeout = null;
-      }
-      if (window.bionicBuffer) {
-        window.bionicBuffer.clear();
-      }
-    } else {
-      yield* observeChanges;
-    }
-    return;
-  }
-
   yield* injectStyles;
   
   const style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
@@ -213,8 +189,23 @@ const runBionicConversion = Effect.gen(function* () {
   }
 
   if (bionicActive) {
+    // Safely re-run walk and connect observer.
+    // Existing highlighted elements are protected by processTextNodes checks.
     yield* walkAndProcess;
     yield* observeChanges;
+  } else {
+    // Teardown observer and timers on standby
+    if (window.bionicObserver) {
+      window.bionicObserver.disconnect();
+      window.bionicObserver = null;
+    }
+    if (window.bionicTimeout) {
+      clearTimeout(window.bionicTimeout);
+      window.bionicTimeout = null;
+    }
+    if (window.bionicBuffer) {
+      window.bionicBuffer.clear();
+    }
   }
   
   document.body.classList.add("bionic-reading-processed");
