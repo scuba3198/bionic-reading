@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive } from "./services";
+import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive, StorageError, TabError } from "./services";
 
 const btn_active = document.getElementById("bionic_reading_btn") as HTMLButtonElement | null;
 const status_text = document.getElementById("status_text") as HTMLSpanElement | null;
@@ -75,7 +75,18 @@ const program = Effect.gen(function* () {
         handleButtonClick.pipe(
           Effect.provide(ChromeStorageLive),
           Effect.provide(ChromeTabsLive),
-          Effect.catchAll((err) => Effect.logError("Button click failed", err))
+          Effect.catchAll((err) => {
+            // Distinct error handling depending on the type
+            switch (err._tag) {
+              case "StorageError":
+                Effect.logError(`Storage transaction failed: ${err.message}`);
+                break;
+              case "TabError":
+                Effect.logError(`Chrome scripting failed: ${err.message}`);
+                break;
+            }
+            return Effect.succeed(null);
+          })
         )
       );
     });
@@ -97,7 +108,7 @@ const program = Effect.gen(function* () {
           }
         }).pipe(
           Effect.provide(ChromeTabsLive),
-          Effect.catchAll((err) => Effect.logError("Storage change handler failed", err))
+          Effect.catchAll((err) => Effect.logError(`Active tab checking failed: ${err.message}`))
         )
       );
     }
@@ -109,6 +120,9 @@ Effect.runFork(
   program.pipe(
     Effect.provide(ChromeStorageLive),
     Effect.provide(ChromeTabsLive),
-    Effect.catchAll((err) => Effect.logError("Initialization failed", err))
+    Effect.catchAll((err) => {
+      Effect.logError(`Extension popup initialization failed: ${err.message}`);
+      return Effect.succeed(null);
+    })
   )
 );

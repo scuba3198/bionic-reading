@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive } from "./services";
+import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive, StorageError, TabError, WasmInitError } from "./services";
 import init, { transform_text } from "../wasm/pkg/bionic_wasm.js";
 import { WASM_BASE64 } from "./wasm_bytes";
 
@@ -21,7 +21,7 @@ const initWasm = Effect.tryPromise({
     await init(bytes);
     wasmInitialized = true;
   },
-  catch: (error) => new Error(`WASM initialization failed: ${error}`),
+  catch: (error) => new WasmInitError({ message: `WASM compilation failed: ${error}` }),
 });
 
 const handleTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) =>
@@ -42,7 +42,10 @@ const runTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab:
     handleTabUpdate(tabId, changeInfo, tab).pipe(
       Effect.provide(ChromeStorageLive),
       Effect.provide(ChromeTabsLive),
-      Effect.catchAll((err) => Effect.logError("Background tab update handler failed", err))
+      Effect.catchAll((err) => {
+        Effect.logError(`Tab updates execution failed: ${err.message}`);
+        return Effect.succeed(null);
+      })
     )
   );
 };
@@ -59,8 +62,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ htmls });
       }).pipe(
         Effect.catchAll((err) => {
-          Effect.logError("Failed to highlight texts in background service worker", err);
-          sendResponse({ error: String(err) });
+          // Exhaustive error type matching
+          switch (err._tag) {
+            case "WasmInitError":
+              Effect.logError(`Wasm engine init failed: ${err.message}`);
+              break;
+            default:
+              Effect.logError(`Message highlighting failed: ${err.message}`);
+          }
+          sendResponse({ error: err.message });
           return Effect.succeed(null);
         })
       )
@@ -95,7 +105,10 @@ chrome.commands.onCommand.addListener((command) => {
       toggleBionicState.pipe(
         Effect.provide(ChromeStorageLive),
         Effect.provide(ChromeTabsLive),
-        Effect.catchAll((err) => Effect.logError("Keyboard command toggle failed", err))
+        Effect.catchAll((err) => {
+          Effect.logError(`Command toggling execution failed: ${err.message}`);
+          return Effect.succeed(null);
+        })
       )
     );
   }

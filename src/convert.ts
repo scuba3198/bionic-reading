@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { StorageError, TabError } from "./services";
 
 declare global {
   interface Window {
@@ -92,11 +93,11 @@ const processTextNodes = (nodes: Node[]) =>
 
     const response: { htmls?: string[]; error?: string } = yield* Effect.tryPromise({
       try: () => chrome.runtime.sendMessage({ type: "HIGHLIGHT_TEXTS", texts }),
-      catch: (error) => new Error(`Failed to send highlight message to background: ${error}`),
+      catch: (error) => new TabError({ message: `Failed to send highlight message to background: ${error}` }),
     });
 
     if (response.error) {
-      yield* Effect.fail(new Error(response.error));
+      yield* Effect.fail(new TabError({ message: response.error }));
     }
 
     if (response.htmls) {
@@ -137,7 +138,7 @@ const observeChanges = Effect.sync(() => {
       window.bionicBuffer.clear();
       Effect.runFork(
         processTextNodes(nodes).pipe(
-          Effect.catchAll((err) => Effect.logError("Buffer processing failed", err))
+          Effect.catchAll((err) => Effect.logError(`Buffer processing failed: ${err.message}`))
         )
       );
     }
@@ -177,7 +178,7 @@ const observeChanges = Effect.sync(() => {
 const runBionicConversion = Effect.gen(function* () {
   const response = yield* Effect.tryPromise({
     try: () => chrome.storage.local.get("bionic_active"),
-    catch: (error) => new Error(`Storage read failed: ${error}`),
+    catch: (error) => new StorageError({ message: `Storage read failed: ${error}` }),
   });
   const bionicActive = !!response.bionic_active;
 
@@ -189,12 +190,9 @@ const runBionicConversion = Effect.gen(function* () {
   }
 
   if (bionicActive) {
-    // Safely re-run walk and connect observer.
-    // Existing highlighted elements are protected by processTextNodes checks.
     yield* walkAndProcess;
     yield* observeChanges;
   } else {
-    // Teardown observer and timers on standby
     if (window.bionicObserver) {
       window.bionicObserver.disconnect();
       window.bionicObserver = null;
@@ -213,6 +211,9 @@ const runBionicConversion = Effect.gen(function* () {
 
 Effect.runFork(
   runBionicConversion.pipe(
-    Effect.catchAll((err) => Effect.logError("Bionic reading engine failed", err))
+    Effect.catchAll((err) => {
+      Effect.logError(`Bionic reading engine execution failed: ${err.message}`);
+      return Effect.succeed(null);
+    })
   )
 );
