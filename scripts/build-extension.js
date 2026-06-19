@@ -102,7 +102,8 @@ export const WASM_BASE64 = "${wasmBase64}";
     { src: 'icon16.png', dest: 'icon16.png' },
     { src: 'icon48.png', dest: 'icon48.png' },
     { src: 'icon128.png', dest: 'icon128.png' },
-    { src: 'src/bionic.css', dest: 'src/bionic.css' }
+    { src: 'src/bionic.css', dest: 'src/bionic.css' },
+    { src: 'wasm/pkg/bionic_wasm_bg.wasm', dest: 'src/bionic_wasm_bg.wasm' }
   ];
   filesToCopy.forEach(({ src, dest }) => {
     const srcPath = path.join(projectRoot, src);

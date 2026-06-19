@@ -1,22 +1,20 @@
 import { Effect, Match, Option } from "effect";
 import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive, WasmInitError } from "./services";
 import init, { transform_text } from "../wasm/pkg/bionic_wasm.js";
-import { WASM_BASE64 } from "./wasm_bytes";
-
-const decodeBase64 = (base64: string): Uint8Array => {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-};
 
 let wasmInitialized = false;
 
 const initWasm = Effect.fn("initWasm")(function* () {
   if (wasmInitialized) return;
-  const bytes = decodeBase64(WASM_BASE64);
+  const wasmUrl = chrome.runtime.getURL("src/bionic_wasm_bg.wasm");
+  const response = yield* Effect.tryPromise({
+    try: () => fetch(wasmUrl),
+    catch: (error) => new WasmInitError({ message: `Failed to fetch WASM binary: ${error}` }),
+  });
+  const bytes = yield* Effect.tryPromise({
+    try: () => response.arrayBuffer(),
+    catch: (error) => new WasmInitError({ message: `Failed to read WASM bytes: ${error}` }),
+  });
   yield* Effect.tryPromise({
     try: () => init(bytes),
     catch: (error) => new WasmInitError({ message: `WASM compilation failed: ${error}` }),

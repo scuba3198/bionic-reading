@@ -52,9 +52,35 @@ const EXCLUDED_SELECTOR = [
   '#cookie-consent'
 ].join(', ');
 
-const MAIN_SELECTOR = 'main, article, [role="main"], .main-content, #main-content, #content';
+const MAIN_SELECTOR = 'main, [role="main"], .main-content, #main-content, #content, .entry-content, .post-content';
 
 let hasMainContainer: boolean | null = null;
+
+const safeHtmlToNodes = (html: string, doc: Document): Node[] => {
+  const parser = new DOMParser();
+  const parsedDoc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  const container = parsedDoc.body.firstChild;
+  if (!container) return [];
+
+  const nodes: Node[] = [];
+  container.childNodes.forEach((child) => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      nodes.push(doc.createTextNode(child.textContent || ""));
+    } else if (
+      child.nodeType === Node.ELEMENT_NODE &&
+      child.nodeName.toLowerCase() === "span" &&
+      (child as Element).className === CLASS_NAME
+    ) {
+      const span = doc.createElement("span");
+      span.className = CLASS_NAME;
+      span.textContent = child.textContent || "";
+      nodes.push(span);
+    } else {
+      nodes.push(doc.createTextNode(child.textContent || ""));
+    }
+  });
+  return nodes;
+};
 
 const injectStyles = Effect.fn("injectStyles")(() =>
   Effect.sync(() => {
@@ -102,18 +128,41 @@ const processTextNodes = Effect.fn("processTextNodes")(function* (nodes: Node[])
   }
 
   if (response.htmls) {
-    for (let i = 0; i < validNodes.length; i++) {
-      const node = validNodes[i];
-      const html = response.htmls[i];
-      
-      const span = document.createElement("span");
-      span.className = "bionic-processed";
-      span.innerHTML = html;
-      
-      if (node.parentNode) {
-        node.parentNode.replaceChild(span, node);
-      }
-    }
+    yield* Effect.promise(() =>
+      new Promise<void>((resolve) => {
+        const CHUNK_SIZE = 50;
+        let idx = 0;
+        const len = validNodes.length;
+
+        const processChunk = () => {
+          const end = Math.min(idx + CHUNK_SIZE, len);
+          for (let i = idx; i < end; i++) {
+            const node = validNodes[i];
+            const html = response.htmls![i];
+
+            const span = document.createElement("span");
+            span.className = "bionic-processed";
+
+            const parsedNodes = safeHtmlToNodes(html, document);
+            for (const parsedNode of parsedNodes) {
+              span.appendChild(parsedNode);
+            }
+
+            if (node.parentNode) {
+              node.parentNode.replaceChild(span, node);
+            }
+          }
+          idx = end;
+          if (idx < len) {
+            requestAnimationFrame(processChunk);
+          } else {
+            resolve();
+          }
+        };
+
+        requestAnimationFrame(processChunk);
+      })
+    );
   }
 });
 
@@ -199,21 +248,22 @@ const runBionicConversion = Effect.fn("runBionicConversion")(function* () {
     style.disabled = !bionicActive;
   }
 
+  // Always clean up existing active observers and buffers to prevent memory leaks and duplicate triggers
+  if (window.bionicObserver) {
+    window.bionicObserver.disconnect();
+    window.bionicObserver = null;
+  }
+  if (window.bionicTimeout) {
+    clearTimeout(window.bionicTimeout);
+    window.bionicTimeout = null;
+  }
+  if (window.bionicBuffer) {
+    window.bionicBuffer.clear();
+  }
+
   if (bionicActive) {
     yield* walkAndProcess();
     yield* observeChanges();
-  } else {
-    if (window.bionicObserver) {
-      window.bionicObserver.disconnect();
-      window.bionicObserver = null;
-    }
-    if (window.bionicTimeout) {
-      clearTimeout(window.bionicTimeout);
-      window.bionicTimeout = null;
-    }
-    if (window.bionicBuffer) {
-      window.bionicBuffer.clear();
-    }
   }
   
   document.body.classList.add("bionic-reading-processed");
