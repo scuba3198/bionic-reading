@@ -31,8 +31,9 @@ const handleTabUpdate = Effect.fn("handleTabUpdate")(function* (
     const storage = yield* ChromeStorage;
     const tabs = yield* ChromeTabs;
     
-    const data = yield* storage.get("bionic_active");
-    if (data.bionic_active) {
+    const key = `bionic_active_${tabId}`;
+    const data = yield* storage.get(key);
+    if (data[key]) {
       yield* tabs.executeScript(tabId, ["src/convert.js"]);
     }
   }
@@ -64,6 +65,20 @@ const runTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab:
 
 chrome.tabs.onUpdated.addListener(runTabUpdate);
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  Effect.runFork(
+    Effect.gen(function* () {
+      const storage = yield* ChromeStorage;
+      yield* storage.remove(`bionic_active_${tabId}`);
+    }).pipe(
+      Effect.provide(ChromeStorageLive),
+      Effect.catchAll((err) =>
+        Effect.logError(`Failed to clean up storage for tab ${tabId}: ${err.message}`)
+      )
+    )
+  );
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "HIGHLIGHT_TEXTS") {
     Effect.runFork(
@@ -88,6 +103,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
     return true; // Keep message channel open for async response
   }
+
+  if (message.type === "GET_ACTIVE_STATUS") {
+    const tabId = sender.tab?.id;
+    if (tabId) {
+      Effect.runFork(
+        Effect.gen(function* () {
+          const storage = yield* ChromeStorage;
+          const key = `bionic_active_${tabId}`;
+          const data = yield* storage.get(key);
+          sendResponse({ bionicActive: !!data[key] });
+        }).pipe(
+          Effect.provide(ChromeStorageLive),
+          Effect.catchAll((err) => {
+            sendResponse({ error: err.message });
+            return Effect.succeed(null);
+          })
+        )
+      );
+      return true; // Keep message channel open for async response
+    } else {
+      sendResponse({ bionicActive: false });
+    }
+  }
 });
 
 const toggleBionicState = Effect.fn("toggleBionicState")(function* () {
@@ -97,19 +135,21 @@ const toggleBionicState = Effect.fn("toggleBionicState")(function* () {
   const activeTabOption = yield* tabs.getActiveTab();
   if (Option.isNone(activeTabOption)) return;
   const activeTab = activeTabOption.value;
+  const tabId = activeTab.id;
+  if (!tabId) return;
+
   const url = activeTab.url;
   const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
 
   if (!isSupported) return;
 
-  const data = yield* storage.get("bionic_active");
-  const newState = !data.bionic_active;
+  const key = `bionic_active_${tabId}`;
+  const data = yield* storage.get(key);
+  const newState = !data[key];
 
-  yield* storage.set({ bionic_active: newState });
+  yield* storage.set({ [key]: newState });
 
-  if (activeTab.id) {
-    yield* tabs.executeScript(activeTab.id, ["src/convert.js"]);
-  }
+  yield* tabs.executeScript(tabId, ["src/convert.js"]);
 });
 
 chrome.commands.onCommand.addListener((command) => {

@@ -24,9 +24,6 @@ const initUI = Effect.fn("initUI")(function* () {
   const storage = yield* ChromeStorage;
   const tabs = yield* ChromeTabs;
 
-  const data = yield* storage.get("bionic_active");
-  const bionic_active = !!data.bionic_active;
-
   const activeTabOption = yield* tabs.getActiveTab();
   const isSupported = Option.match(activeTabOption, {
     onNone: () => false,
@@ -45,7 +42,14 @@ const initUI = Effect.fn("initUI")(function* () {
       status_text.style.color = "var(--text-muted)";
     }
   } else {
-    yield* updateUI(bionic_active);
+    const activeTab = activeTabOption.value;
+    const tabId = activeTab.id;
+    if (tabId) {
+      const key = `bionic_active_${tabId}`;
+      const data = yield* storage.get(key);
+      const bionic_active = !!data[key];
+      yield* updateUI(bionic_active);
+    }
   }
 });
 
@@ -56,19 +60,21 @@ const handleButtonClick = Effect.fn("handleButtonClick")(function* () {
   const activeTabOption = yield* tabs.getActiveTab();
   if (Option.isNone(activeTabOption)) return;
   const activeTab = activeTabOption.value;
+  const tabId = activeTab.id;
+  if (!tabId) return;
+
   const url = activeTab.url;
   const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
 
   if (!isSupported) return;
 
-  const data = yield* storage.get("bionic_active");
-  const newState = !data.bionic_active;
+  const key = `bionic_active_${tabId}`;
+  const data = yield* storage.get(key);
+  const newState = !data[key];
 
-  yield* storage.set({ bionic_active: newState });
+  yield* storage.set({ [key]: newState });
 
-  if (activeTab.id) {
-    yield* tabs.executeScript(activeTab.id, ["src/convert.js"]);
-  }
+  yield* tabs.executeScript(tabId, ["src/convert.js"]);
 });
 
 const program = Effect.fn("program")(function* () {
@@ -97,19 +103,21 @@ const program = Effect.fn("program")(function* () {
   }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "local" && changes.bionic_active) {
-      const bionic_active = !!changes.bionic_active.newValue;
+    if (areaName === "local") {
       Effect.runFork(
         Effect.gen(function* () {
           const tabs = yield* ChromeTabs;
           const activeTabOption = yield* tabs.getActiveTab();
-          const isSupported = Option.match(activeTabOption, {
-            onNone: () => false,
-            onSome: (tab) => !!(tab.url?.startsWith("http://") || tab.url?.startsWith("https://")),
-          });
-          
-          if (isSupported) {
-            yield* updateUI(bionic_active);
+          if (Option.isSome(activeTabOption)) {
+            const activeTab = activeTabOption.value;
+            const tabId = activeTab.id;
+            if (tabId) {
+              const key = `bionic_active_${tabId}`;
+              if (changes[key]) {
+                const bionic_active = !!changes[key].newValue;
+                yield* updateUI(bionic_active);
+              }
+            }
           }
         }).pipe(
           Effect.provide(ChromeTabsLive),

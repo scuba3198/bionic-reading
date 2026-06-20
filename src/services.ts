@@ -17,6 +17,7 @@ export class ChromeStorage extends Context.Tag("ChromeStorage")<
   {
     readonly get: (key: string) => Effect.Effect<{ [key: string]: any }, StorageError>;
     readonly set: (items: { [key: string]: any }) => Effect.Effect<void, StorageError>;
+    readonly remove: (key: string) => Effect.Effect<void, StorageError>;
   }
 >() {}
 
@@ -40,6 +41,11 @@ export const ChromeStorageLive = Layer.succeed(
       Effect.tryPromise({
         try: () => chrome.storage.local.set(items),
         catch: (error) => new StorageError({ message: `ChromeStorage.set failed: ${error}` }),
+      }),
+    remove: (key) =>
+      Effect.tryPromise({
+        try: () => chrome.storage.local.remove(key),
+        catch: (error) => new StorageError({ message: `ChromeStorage.remove failed: ${error}` }),
       }),
   })
 );

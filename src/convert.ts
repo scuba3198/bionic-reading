@@ -235,11 +235,16 @@ const observeChanges = Effect.fn("observeChanges")(function* () {
 });
 
 const runBionicConversion = Effect.fn("runBionicConversion")(function* () {
-  const response = yield* Effect.tryPromise({
-    try: () => chrome.storage.local.get("bionic_active"),
-    catch: (error) => new StorageError({ message: `Storage read failed: ${error}` }),
+  const response: { bionicActive?: boolean; error?: string } = yield* Effect.tryPromise({
+    try: () => chrome.runtime.sendMessage({ type: "GET_ACTIVE_STATUS" }),
+    catch: (error) => new StorageError({ message: `Failed to query active status from background: ${error}` }),
   });
-  const bionicActive = !!response.bionic_active;
+
+  if (response.error) {
+    return yield* Effect.fail(new StorageError({ message: response.error }));
+  }
+
+  const bionicActive = !!response.bionicActive;
 
   yield* injectStyles();
   
