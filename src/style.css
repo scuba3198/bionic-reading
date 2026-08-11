@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;700&display=swap');
-
 :root {
   --bg: #020617;
   --panel: #0f172a;
@@ -8,8 +6,8 @@
   --border: rgba(45, 212, 191, 0.15);
   --text: #f1f5f9;
   --text-muted: #94a3b8;
-  --mono: 'IBM Plex Mono', monospace;
-  --sans: 'Plus Jakarta Sans', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body {
@@ -141,6 +139,11 @@ button:active {
   transform: scale(0.98);
 }
 
+button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
 button.active {
   background: transparent;
   color: var(--accent);
@@ -168,4 +171,15 @@ button.active {
   0% { opacity: 0; transform: scale(0.98); }
   50% { opacity: 0.5; }
   100% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

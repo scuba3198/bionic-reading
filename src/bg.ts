@@ -1,179 +1,155 @@
-import { Effect, Match, Option } from "effect";
-import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive, WasmInitError } from "./services";
 import init, { transform_text } from "../wasm/pkg/bionic_wasm.js";
 
 let wasmInitialized = false;
+let wasmInitPromise: Promise<void> | undefined;
 
-const initWasm = Effect.fn("initWasm")(function* () {
+const isSupportedUrl = (url?: string) => Boolean(url && /^https?:\/\//.test(url));
+type ToggleResult = { supported: boolean; bionicActive: boolean };
+const toggleLocks = new Map<number, Promise<ToggleResult>>();
+const tabGenerations = new Map<number, number>();
+
+const getTabGeneration = (tabId: number) => {
+  const current = tabGenerations.get(tabId);
+  if (current !== undefined) return current;
+  tabGenerations.set(tabId, 1);
+  return 1;
+};
+
+const initWasm = async () => {
   if (wasmInitialized) return;
-  const wasmUrl = chrome.runtime.getURL("src/bionic_wasm_bg.wasm");
-  const response = yield* Effect.tryPromise({
-    try: () => fetch(wasmUrl),
-    catch: (error) => new WasmInitError({ message: `Failed to fetch WASM binary: ${error}` }),
-  });
-  const bytes = yield* Effect.tryPromise({
-    try: () => response.arrayBuffer(),
-    catch: (error) => new WasmInitError({ message: `Failed to read WASM bytes: ${error}` }),
-  });
-  yield* Effect.tryPromise({
-    try: () => init(bytes),
-    catch: (error) => new WasmInitError({ message: `WASM compilation failed: ${error}` }),
-  });
-  wasmInitialized = true;
-});
+  if (wasmInitPromise) return wasmInitPromise;
 
-const handleTabUpdate = Effect.fn("handleTabUpdate")(function* (
-  tabId: number,
-  changeInfo: chrome.tabs.TabChangeInfo,
-  tab: chrome.tabs.Tab
-) {
-  if (changeInfo.status === "complete" && tab.url?.startsWith("http")) {
-    const storage = yield* ChromeStorage;
-    const tabs = yield* ChromeTabs;
-    
+  wasmInitPromise = (async () => {
+    const response = await fetch(chrome.runtime.getURL("src/bionic_wasm_bg.wasm"));
+    if (!response.ok) throw new Error(`Failed to fetch WASM binary (${response.status})`);
+    await init(await response.arrayBuffer());
+    wasmInitialized = true;
+  })();
+
+  try {
+    await wasmInitPromise;
+  } finally {
+    if (!wasmInitialized) wasmInitPromise = undefined;
+  }
+};
+
+const toggleBionicState = async (): Promise<ToggleResult> => {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = activeTab?.id;
+  if (typeof tabId !== "number" || !isSupportedUrl(activeTab.url)) {
+    return { supported: false, bionicActive: false };
+  }
+
+  const generation = getTabGeneration(tabId);
+  const previous = toggleLocks.get(tabId) ?? Promise.resolve({ supported: true, bionicActive: false });
+  const operation = previous.catch(() => ({ supported: true, bionicActive: false })).then(async () => {
+    const isStale = () => tabGenerations.get(tabId) !== generation;
     const key = `bionic_active_${tabId}`;
-    const data = yield* storage.get(key);
-    if (data[key]) {
-      yield* tabs.executeScript(tabId, ["src/convert.js"]);
+    const data = await chrome.storage.local.get(key);
+    const hadPreviousValue = Object.prototype.hasOwnProperty.call(data, key);
+    const previousValue = data[key];
+    const bionicActive = !Boolean(previousValue);
+
+    if (isStale()) {
+      await chrome.storage.local.remove(key);
+      throw new Error("Active tab navigated during toggle");
     }
+    await chrome.storage.local.set({ [key]: bionicActive });
+    if (isStale()) {
+      await chrome.storage.local.remove(key);
+      throw new Error("Active tab navigated during toggle");
+    }
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ["src/convert.js"] });
+    } catch (error) {
+      if (isStale()) {
+        await chrome.storage.local.remove(key);
+        throw new Error("Active tab navigated during toggle");
+      }
+      try {
+        if (hadPreviousValue) await chrome.storage.local.set({ [key]: previousValue });
+        else await chrome.storage.local.remove(key);
+      } catch (rollbackError) {
+        console.error(`Failed to roll back state for tab ${tabId}:`, rollbackError);
+      }
+      throw error;
+    }
+    if (isStale()) {
+      await chrome.storage.local.remove(key);
+      throw new Error("Active tab navigated during toggle");
+    }
+    return { supported: true, bionicActive };
+  });
+
+  toggleLocks.set(tabId, operation);
+  try {
+    return await operation;
+  } finally {
+    if (toggleLocks.get(tabId) === operation) toggleLocks.delete(tabId);
+  }
+};
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // A navigation/reload creates a fresh document, so the previous per-tab state is stale.
+  if (changeInfo.status === "loading") {
+    tabGenerations.set(tabId, (tabGenerations.get(tabId) ?? 0) + 1);
+    void chrome.storage.local.remove(`bionic_active_${tabId}`).catch((error) =>
+      console.error(`Failed to clear state for tab ${tabId}:`, error)
+    );
   }
 });
 
-const runTabUpdate = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
-  Effect.runFork(
-    handleTabUpdate(tabId, changeInfo, tab).pipe(
-      Effect.provide(ChromeStorageLive),
-      Effect.provide(ChromeTabsLive),
-      Effect.catchAll((err) =>
-        Match.value(err).pipe(
-          Match.tag("StorageError", (e) =>
-            Effect.logError(`Tab update storage check failed: ${e.message}`).pipe(
-              Effect.map(() => null)
-            )
-          ),
-          Match.tag("TabError", (e) =>
-            Effect.logError(`Tab update content script injection failed: ${e.message}`).pipe(
-              Effect.map(() => null)
-            )
-          ),
-          Match.exhaustive
-        )
-      )
-    )
-  );
-};
-
-chrome.tabs.onUpdated.addListener(runTabUpdate);
-
 chrome.tabs.onRemoved.addListener((tabId) => {
-  Effect.runFork(
-    Effect.gen(function* () {
-      const storage = yield* ChromeStorage;
-      yield* storage.remove(`bionic_active_${tabId}`);
-    }).pipe(
-      Effect.provide(ChromeStorageLive),
-      Effect.catchAll((err) =>
-        Effect.logError(`Failed to clean up storage for tab ${tabId}: ${err.message}`)
-      )
-    )
+  tabGenerations.delete(tabId);
+  void chrome.storage.local.remove(`bionic_active_${tabId}`).catch((error) =>
+    console.error(`Failed to clean up storage for tab ${tabId}:`, error)
   );
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "HIGHLIGHT_TEXTS") {
-    Effect.runFork(
-      Effect.gen(function* () {
-        yield* initWasm();
-        const texts: string[] = message.texts;
-        const htmls = texts.map((text) => (text.trim() ? transform_text(text) : text));
-        yield* Effect.sync(() => sendResponse({ htmls }));
-      }).pipe(
-        Effect.catchAll((err) =>
-          Match.value(err).pipe(
-            Match.tag("WasmInitError", (e) =>
-              Effect.logError(`Wasm engine init failed: ${e.message}`).pipe(
-                Effect.tap(() => Effect.sync(() => sendResponse({ error: e.message }))),
-                Effect.map(() => null)
-              )
-            ),
-            Match.exhaustive
-          )
-        )
-      )
-    );
-    return true; // Keep message channel open for async response
+    void (async () => {
+      try {
+        if (!Array.isArray(message.texts) || message.texts.some((text: unknown) => typeof text !== "string")) {
+          throw new Error("Invalid highlight request");
+        }
+        await initWasm();
+        sendResponse({ htmls: (message.texts as string[]).map((text) => (text.trim() ? transform_text(text) : text)) });
+      } catch (error) {
+        console.error("WASM highlight failed:", error);
+        sendResponse({ error: String(error) });
+      }
+    })();
+    return true;
   }
 
   if (message.type === "GET_ACTIVE_STATUS") {
-    const tabId = sender.tab?.id;
-    if (tabId) {
-      Effect.runFork(
-        Effect.gen(function* () {
-          const storage = yield* ChromeStorage;
-          const key = `bionic_active_${tabId}`;
-          const data = yield* storage.get(key);
-          sendResponse({ bionicActive: !!data[key] });
-        }).pipe(
-          Effect.provide(ChromeStorageLive),
-          Effect.catchAll((err) => {
-            sendResponse({ error: err.message });
-            return Effect.succeed(null);
-          })
-        )
-      );
-      return true; // Keep message channel open for async response
-    } else {
-      sendResponse({ bionicActive: false });
-    }
+    void (async () => {
+      try {
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== "number") return sendResponse({ bionicActive: false });
+        const key = `bionic_active_${tabId}`;
+        const data = await chrome.storage.local.get(key);
+        sendResponse({ bionicActive: Boolean(data[key]) });
+      } catch (error) {
+        sendResponse({ error: String(error) });
+      }
+    })();
+    return true;
   }
-});
 
-const toggleBionicState = Effect.fn("toggleBionicState")(function* () {
-  const storage = yield* ChromeStorage;
-  const tabs = yield* ChromeTabs;
+  if (message.type === "TOGGLE_BIONIC") {
+    void toggleBionicState()
+      .then(sendResponse)
+      .catch((error) => sendResponse({ error: String(error) }));
+    return true;
+  }
 
-  const activeTabOption = yield* tabs.getActiveTab();
-  if (Option.isNone(activeTabOption)) return;
-  const activeTab = activeTabOption.value;
-  const tabId = activeTab.id;
-  if (!tabId) return;
-
-  const url = activeTab.url;
-  const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
-
-  if (!isSupported) return;
-
-  const key = `bionic_active_${tabId}`;
-  const data = yield* storage.get(key);
-  const newState = !data[key];
-
-  yield* storage.set({ [key]: newState });
-
-  yield* tabs.executeScript(tabId, ["src/convert.js"]);
+  return false;
 });
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === "toggle-bionic") {
-    Effect.runFork(
-      toggleBionicState().pipe(
-        Effect.provide(ChromeStorageLive),
-        Effect.provide(ChromeTabsLive),
-        Effect.catchAll((err) =>
-          Match.value(err).pipe(
-            Match.tag("StorageError", (e) =>
-              Effect.logError(`Keyboard command toggle storage failed: ${e.message}`).pipe(
-                Effect.map(() => null)
-              )
-            ),
-            Match.tag("TabError", (e) =>
-              Effect.logError(`Keyboard command toggle tab script failed: ${e.message}`).pipe(
-                Effect.map(() => null)
-              )
-            ),
-            Match.exhaustive
-          )
-        )
-      )
-    );
+    void toggleBionicState().catch((error) => console.error("Keyboard toggle failed:", error));
   }
 });

@@ -2,9 +2,9 @@
 
 # Bionic Reading: Cyber-Optical Augmented Engine
 
-Enhance your reading experience with this high-performance Chrome extension that applies patented bionic reading techniques to any website. It uses a sophisticated **"Cyber-Optical"** design system, a robust **Effect-TS** orchestration framework, and a **Rust WebAssembly (WASM)** processing core.
+Enhance your reading experience with this high-performance Chrome extension that applies patented bionic reading techniques to the active webpage. It uses a sophisticated **"Cyber-Optical"** design system, native Chrome APIs, and a **Rust WebAssembly (WASM)** processing core.
 
-[![Release Version](https://img.shields.io/badge/version-2.0.0-2dd4bf?style=for-the-badge)](https://github.com/scuba3198/bionic-reading/releases)
+[![Release Version](https://img.shields.io/badge/version-2.1.0-2dd4bf?style=for-the-badge)](https://github.com/scuba3198/bionic-reading/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-0f172a?style=for-the-badge)](LICENSE)
 
 ## Features
@@ -12,10 +12,11 @@ Enhance your reading experience with this high-performance Chrome extension that
 - **Rust WebAssembly Core**: High-performance text tokenization and formatting compiled to Wasm. Implements the exact **Typo1 algorithm from patent DE102017112916A1**.
 - **100% CSP-Immune**: WebAssembly execution is offloaded to the extension's background service worker, completely bypassing strict Content Security Policies (CSP) on secure sites like GitHub and Twitter.
 - **Stop-Words Bypass**: Bypasses formatting for common English/German stop words (`the`, `and`, `to`, `der`, `die`, `das`) to maintain a natural visual flow.
-- **Keyboard Shortcut (`Alt+B`)**: Toggle the bionic engine instantly from any page.
-- **Reactive UI Synchronization**: The popup UI reactively syncs with storage changes, updating status labels, colors, and button states in real-time when toggled via hotkey.
-- **SPA & Dynamic Mutation Support**: Automatically processes new elements on dynamic pages using `MutationObserver` and batched text walker queues.
-- **Cyber-Optical UI**: A premium, "Augmented Reality" inspired interface featuring Glassmorphic panels, blueprint borders, and IBM Plex Mono typography.
+- **Keyboard Shortcut (`Alt+B`)**: Toggle the bionic engine instantly on the active tab.
+- **Reactive UI Synchronization**: The popup UI syncs with per-tab storage changes, including toggles made via hotkey.
+- **Dynamic Mutation Support**: While engaged, automatically processes new elements using `MutationObserver` and batched text walker queues.
+- **Active-Tab Access**: Requests access only to the active tab; it does not run or reinject on unrelated pages or navigations.
+- **Cyber-Optical UI**: A premium, "Augmented Reality" inspired interface featuring Glassmorphic panels, blueprint borders, and monospace typography.
 
 ## Build and Development
 
@@ -31,7 +32,7 @@ npm install -g wasm-pack
    ```bash
    npm install
    ```
-3. Run the complete build pipeline (compiles WASM, inlines binary, bundles popup/worker/content scripts via Vite, and copies assets):
+3. Run the complete build pipeline (compiles WASM, bundles popup/worker/content scripts via Vite, and copies the WASM asset):
    ```bash
    npm run build
    ```
@@ -58,7 +59,7 @@ npm install -g wasm-pack
 
 1. Click the **Bionic Reading** icon in your browser toolbar or press **Alt+B** to toggle the bionic enhancement on the active tab.
 2. If the active tab is an internal browser page (e.g. `chrome://`), the extension status changes to **RESTRICTED** to prevent injection errors.
-3. On standard webpages, the text is automatically parsed, formatted, and highlighted in bionic reading style.
+3. On standard webpages, the text is parsed, formatted, and highlighted in bionic reading style while the engine is engaged.
 
 ## Design Philosophy
 

@@ -1,11 +1,14 @@
-import { Effect, Match } from "effect";
-import { StorageError, TabError } from "./services";
+export {};
 
 declare global {
   interface Window {
     bionicObserver?: MutationObserver | null;
-    bionicTimeout?: any;
+    bionicTimeout?: number | null;
     bionicBuffer?: Set<Node>;
+    bionicRunId?: number;
+    bionicWrappers?: Set<HTMLElement>;
+    bionicStyle?: HTMLStyleElement | null;
+    bionicBodyClassAdded?: boolean;
   }
 }
 
@@ -14,59 +17,56 @@ const STYLE_ID = "bionic-reading-styles";
 
 const EXCLUDED_SELECTOR = [
   `.${CLASS_NAME}`,
-  '.bionic-processed',
-  'script',
-  'style',
-  'noscript',
-  'textarea',
-  'input',
-  'select',
-  'button',
-  'nav',
-  'aside',
-  'footer',
-  'header',
+  ".bionic-processed",
+  "script",
+  "style",
+  "noscript",
+  "textarea",
+  "input",
+  "select",
+  "button",
+  "nav",
+  "aside",
+  "footer",
+  "header",
   '[role="navigation"]',
   '[role="complementary"]',
   '[role="contentinfo"]',
   '[role="banner"]',
   '[role="search"]',
-  '.nav',
-  '.navbar',
-  '.sidebar',
-  '.footer',
-  '.header',
-  '.menu',
-  '.navigation',
-  '.ad',
-  '.ads',
-  '.ad-container',
-  '.advertisement',
-  '.social-share',
-  '.share-buttons',
-  '.comments',
-  '#comments',
-  '.cookie-banner',
-  '.cookie-notice',
-  '.consent-banner',
-  '#cookie-consent'
-].join(', ');
+  ".nav",
+  ".navbar",
+  ".sidebar",
+  ".footer",
+  ".header",
+  ".menu",
+  ".navigation",
+  ".ad",
+  ".ads",
+  ".ad-container",
+  ".advertisement",
+  ".social-share",
+  ".share-buttons",
+  ".comments",
+  "#comments",
+  ".cookie-banner",
+  ".cookie-notice",
+  ".consent-banner",
+  "#cookie-consent",
+].join(", ");
 
-const MAIN_SELECTOR = 'main, [role="main"], .main-content, #main-content, #content, .entry-content, .post-content';
-
+const MAIN_SELECTOR = "main, [role=\"main\"], .main-content, #main-content, #content, .entry-content, .post-content";
 let hasMainContainer: boolean | null = null;
 
+// Keep the formatter boundary narrow: only plain text and our own bold span are copied into the page.
 const safeHtmlToNodes = (html: string, doc: Document): Node[] => {
-  const parser = new DOMParser();
-  const parsedDoc = parser.parseFromString(`<div>${html}</div>`, "text/html");
-  const container = parsedDoc.body.firstChild;
+  const parsedDoc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+  const container = parsedDoc.body.firstElementChild;
   if (!container) return [];
 
-  const nodes: Node[] = [];
-  container.childNodes.forEach((child) => {
-    if (child.nodeType === Node.TEXT_NODE) {
-      nodes.push(doc.createTextNode(child.textContent || ""));
-    } else if (
+  return Array.from(container.childNodes, (child) => {
+    if (child.nodeType === Node.TEXT_NODE) return doc.createTextNode(child.textContent || "");
+    if (
       child.nodeType === Node.ELEMENT_NODE &&
       child.nodeName.toLowerCase() === "span" &&
       (child as Element).className === CLASS_NAME
@@ -74,218 +74,210 @@ const safeHtmlToNodes = (html: string, doc: Document): Node[] => {
       const span = doc.createElement("span");
       span.className = CLASS_NAME;
       span.textContent = child.textContent || "";
-      nodes.push(span);
-    } else {
-      nodes.push(doc.createTextNode(child.textContent || ""));
+      return span;
     }
+    return doc.createTextNode(child.textContent || "");
   });
-  return nodes;
 };
 
-const injectStyles = Effect.fn("injectStyles")(() =>
-  Effect.sync(() => {
-    if (document.getElementById(STYLE_ID)) return;
-    const style = document.createElement("style");
-    style.id = STYLE_ID;
-    style.textContent = `
-      .${CLASS_NAME} { font-weight: 700 !important; display: inline; }
-    `;
-    document.head.appendChild(style);
-  })
-);
+const injectStyles = () => {
+  if (window.bionicStyle?.isConnected || !document.head) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `.${CLASS_NAME} { font-weight: 700 !important; display: inline; }`;
+  document.head.appendChild(style);
+  window.bionicStyle = style;
+};
 
-const processTextNodes = Effect.fn("processTextNodes")(function* (nodes: Node[]) {
+const pruneDisconnectedWrappers = () => {
+  const wrappers = window.bionicWrappers;
+  if (!wrappers) return;
+  wrappers.forEach((wrapper) => {
+    if (!wrapper.isConnected) {
+      const text = document.createTextNode(wrapper.textContent || "");
+      if (wrapper.parentNode) wrapper.replaceWith(text);
+      else {
+        wrapper.classList.remove("bionic-processed");
+        wrapper.replaceChildren(text);
+      }
+      wrappers.delete(wrapper);
+    }
+  });
+};
+
+const processTextNodes = async (nodes: Node[], runId = window.bionicRunId) => {
   const validNodes: Node[] = [];
   const texts: string[] = [];
 
-  if (hasMainContainer === null) {
-    hasMainContainer = document.querySelector(MAIN_SELECTOR) !== null;
-  }
+  if (hasMainContainer === null) hasMainContainer = document.querySelector(MAIN_SELECTOR) !== null;
 
   for (const node of nodes) {
     const parent = node.parentElement;
-    if (!parent || typeof parent.closest !== 'function') continue;
-    
-    if (parent.closest(EXCLUDED_SELECTOR)) continue;
+    if (!node.isConnected || !parent || parent.closest(EXCLUDED_SELECTOR)) continue;
     if (hasMainContainer && !parent.closest(MAIN_SELECTOR)) continue;
-    
+
     const text = node.nodeValue;
     if (!text || text.length < 2 || !text.trim()) continue;
-
     validNodes.push(node);
     texts.push(text);
   }
 
-  if (validNodes.length === 0) return;
+  if (!validNodes.length) return;
 
-  const response: { htmls?: string[]; error?: string } = yield* Effect.tryPromise({
-    try: () => chrome.runtime.sendMessage({ type: "HIGHLIGHT_TEXTS", texts }),
-    catch: (error) => new TabError({ message: `Failed to send highlight message to background: ${error}` }),
+  const response: { htmls?: string[]; error?: string } = await chrome.runtime.sendMessage({
+    type: "HIGHLIGHT_TEXTS",
+    texts,
   });
+  if (response?.error) throw new Error(response.error);
+  if (!response?.htmls || runId !== window.bionicRunId) return;
 
-  if (response.error) {
-    return yield* Effect.fail(new TabError({ message: response.error }));
-  }
+  pruneDisconnectedWrappers();
+  const wrappers = window.bionicWrappers || (window.bionicWrappers = new Set<HTMLElement>());
+  let index = 0;
+  await new Promise<void>((resolve) => {
+    const processChunk = () => {
+      if (runId !== window.bionicRunId) {
+        resolve();
+        return;
+      }
 
-  if (response.htmls) {
-    yield* Effect.promise(() =>
-      new Promise<void>((resolve) => {
-        const CHUNK_SIZE = 50;
-        let idx = 0;
-        const len = validNodes.length;
+      pruneDisconnectedWrappers();
+      const end = Math.min(index + 50, validNodes.length);
+      for (; index < end; index++) {
+        if (runId !== window.bionicRunId) break;
+        const node = validNodes[index];
+        const html = response.htmls?.[index];
+        if (
+          typeof html !== "string" ||
+          !node?.isConnected ||
+          !node.parentElement ||
+          node.parentElement.closest(EXCLUDED_SELECTOR)
+        ) {
+          continue;
+        }
 
-        const processChunk = () => {
-          const end = Math.min(idx + CHUNK_SIZE, len);
-          for (let i = idx; i < end; i++) {
-            const node = validNodes[i];
-            const html = response.htmls![i];
+        const span = document.createElement("span");
+        span.className = "bionic-processed";
+        safeHtmlToNodes(html, document).forEach((parsedNode) => span.appendChild(parsedNode));
+        node.parentNode?.replaceChild(span, node);
+        if (span.isConnected) wrappers.add(span);
+      }
 
-            const span = document.createElement("span");
-            span.className = "bionic-processed";
-
-            const parsedNodes = safeHtmlToNodes(html, document);
-            for (const parsedNode of parsedNodes) {
-              span.appendChild(parsedNode);
-            }
-
-            if (node.parentNode) {
-              node.parentNode.replaceChild(span, node);
-            }
-          }
-          idx = end;
-          if (idx < len) {
-            requestAnimationFrame(processChunk);
-          } else {
-            resolve();
-          }
-        };
-
+      if (index < validNodes.length && runId === window.bionicRunId) {
         requestAnimationFrame(processChunk);
-      })
-    );
-  }
-});
+      } else {
+        resolve();
+      }
+    };
 
-const walkAndProcess = Effect.fn("walkAndProcess")(function* () {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    requestAnimationFrame(processChunk);
+  });
+};
+
+const walkAndProcess = async (runId: number) => {
+  if (!document.body) return;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes: Node[] = [];
   let node = walker.nextNode();
   while (node) {
     nodes.push(node);
     node = walker.nextNode();
   }
-  
-  yield* processTextNodes(nodes);
-});
+  await processTextNodes(nodes, runId);
+};
 
-const observeChanges = Effect.fn("observeChanges")(function* () {
-  if (window.bionicObserver) return;
+const observeChanges = (runId: number) => {
+  if (window.bionicObserver || !document.body) return;
 
   window.bionicBuffer = new Set<Node>();
   window.bionicTimeout = null;
 
-  const processBuffer = () => {
-    if (window.bionicBuffer && window.bionicBuffer.size > 0) {
-      const nodes = Array.from(window.bionicBuffer);
-      window.bionicBuffer.clear();
-      Effect.runFork(
-        processTextNodes(nodes).pipe(
-          Effect.catchAll((err) =>
-            Match.value(err).pipe(
-              Match.tag("TabError", (e) =>
-                Effect.logError(`Buffer processing failed: ${e.message}`)
-              ),
-              Match.exhaustive
-            )
-          )
-        )
-      );
+  const processBuffer = async () => {
+    const buffer = window.bionicBuffer;
+    if (!buffer?.size) return;
+    const nodes = Array.from(buffer);
+    buffer.clear();
+    try {
+      await processTextNodes(nodes, runId);
+    } catch (error) {
+      console.error("Bionic buffer processing failed:", error);
     }
-    window.bionicTimeout = null;
   };
 
   window.bionicObserver = new MutationObserver((mutations) => {
-    if (!window.bionicBuffer) return;
+    pruneDisconnectedWrappers();
+    const buffer = window.bionicBuffer;
+    if (!buffer) return;
 
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+          const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
           let textNode = walker.nextNode();
           while (textNode) {
-            window.bionicBuffer!.add(textNode);
+            buffer.add(textNode);
             textNode = walker.nextNode();
           }
         } else if (node.nodeType === Node.TEXT_NODE) {
-          window.bionicBuffer!.add(node);
+          buffer.add(node);
         }
       });
     });
 
-    if (window.bionicBuffer.size > 0) {
-      if (window.bionicTimeout) clearTimeout(window.bionicTimeout);
-      window.bionicTimeout = setTimeout(processBuffer, 100);
+    if (buffer.size) {
+      if (window.bionicTimeout !== null && window.bionicTimeout !== undefined) {
+        clearTimeout(window.bionicTimeout);
+      }
+      window.bionicTimeout = window.setTimeout(() => {
+        window.bionicTimeout = null;
+        void processBuffer();
+      }, 100);
     }
   });
 
-  window.bionicObserver.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-});
+  window.bionicObserver.observe(document.body, { childList: true, subtree: true });
+};
 
-const runBionicConversion = Effect.fn("runBionicConversion")(function* () {
-  const response: { bionicActive?: boolean; error?: string } = yield* Effect.tryPromise({
-    try: () => chrome.runtime.sendMessage({ type: "GET_ACTIVE_STATUS" }),
-    catch: (error) => new StorageError({ message: `Failed to query active status from background: ${error}` }),
-  });
-
-  if (response.error) {
-    return yield* Effect.fail(new StorageError({ message: response.error }));
-  }
-
-  const bionicActive = !!response.bionicActive;
-
-  yield* injectStyles();
-  
-  const style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-  if (style) {
-    style.disabled = !bionicActive;
-  }
-
-  // Always clean up existing active observers and buffers to prevent memory leaks and duplicate triggers
-  if (window.bionicObserver) {
-    window.bionicObserver.disconnect();
-    window.bionicObserver = null;
-  }
-  if (window.bionicTimeout) {
+const restoreOriginalDom = () => {
+  window.bionicObserver?.disconnect();
+  window.bionicObserver = null;
+  if (window.bionicTimeout !== null && window.bionicTimeout !== undefined) {
     clearTimeout(window.bionicTimeout);
-    window.bionicTimeout = null;
   }
-  if (window.bionicBuffer) {
-    window.bionicBuffer.clear();
-  }
+  window.bionicTimeout = null;
+  window.bionicBuffer?.clear();
 
-  if (bionicActive) {
-    yield* walkAndProcess();
-    yield* observeChanges();
-  }
-  
-  document.body.classList.add("bionic-reading-processed");
-});
+  window.bionicWrappers?.forEach((wrapper) => {
+    if (wrapper.isConnected) wrapper.replaceWith(document.createTextNode(wrapper.textContent || ""));
+  });
+  window.bionicWrappers?.clear();
 
-Effect.runFork(
-  runBionicConversion().pipe(
-    Effect.catchAll((err) =>
-      Match.value(err).pipe(
-        Match.tag("StorageError", (e) =>
-          Effect.logError(`Bionic reading engine storage failed: ${e.message}`)
-        ),
-        Match.tag("TabError", (e) =>
-          Effect.logError(`Bionic reading engine tab message failed: ${e.message}`)
-        ),
-        Match.exhaustive
-      )
-    )
-  )
-);
+  if (window.bionicStyle?.isConnected) window.bionicStyle.remove();
+  window.bionicStyle = null;
+  if (window.bionicBodyClassAdded) document.body?.classList.remove("bionic-reading-processed");
+  window.bionicBodyClassAdded = false;
+};
+
+const runBionicConversion = async () => {
+  const runId = (window.bionicRunId || 0) + 1;
+  window.bionicRunId = runId;
+  const response: { bionicActive?: boolean; error?: string } = await chrome.runtime.sendMessage({
+    type: "GET_ACTIVE_STATUS",
+  });
+  if (response?.error) throw new Error(response.error);
+  if (runId !== window.bionicRunId) return;
+
+  restoreOriginalDom();
+  if (!response?.bionicActive) return;
+
+  injectStyles();
+  await walkAndProcess(runId);
+  if (runId !== window.bionicRunId) return;
+  observeChanges(runId);
+  if (document.body && !document.body.classList.contains("bionic-reading-processed")) {
+    document.body.classList.add("bionic-reading-processed");
+    window.bionicBodyClassAdded = true;
+  }
+};
+
+void runBionicConversion().catch((error) => console.error("Bionic reading conversion failed:", error));

@@ -1,15 +1,12 @@
 {
   "name": "bionic-reading-extension",
-  "version": "2.0.0",
-  "description": "Bionic Reading extension rewritten in Effect-TS and Rust WASM",
+  "version": "2.1.0",
+  "description": "Bionic Reading extension powered by Rust WASM",
   "main": "index.js",
   "scripts": {
     "build": "node scripts/build-extension.js",
     "dev": "vite",
     "test:wasm": "cd wasm && cargo test"
-  },
-  "dependencies": {
-    "effect": "^3.12.2"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

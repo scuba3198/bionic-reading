@@ -1,155 +1,82 @@
-import { Effect, Match, Option } from "effect";
-import { ChromeStorage, ChromeStorageLive, ChromeTabs, ChromeTabsLive } from "./services";
-
 const btn_active = document.getElementById("bionic_reading_btn") as HTMLButtonElement | null;
 const status_text = document.getElementById("status_text") as HTMLSpanElement | null;
+let togglePending = false;
+let supportedPage = false;
 
-const updateUI = Effect.fn("updateUI")((bionic_active: boolean) =>
-  Effect.sync(() => {
-    if (btn_active) {
-      btn_active.innerText = bionic_active ? "Disengage" : "Engage Engine";
-      btn_active.classList.toggle("active", bionic_active);
-      btn_active.disabled = false;
-      btn_active.style.opacity = "";
-      btn_active.style.cursor = "";
-    }
-    if (status_text) {
-      status_text.innerText = bionic_active ? "ACTIVE" : "STANDBY";
-      status_text.style.color = bionic_active ? "var(--accent)" : "var(--text-muted)";
-    }
-  })
-);
-
-const initUI = Effect.fn("initUI")(function* () {
-  const storage = yield* ChromeStorage;
-  const tabs = yield* ChromeTabs;
-
-  const activeTabOption = yield* tabs.getActiveTab();
-  const isSupported = Option.match(activeTabOption, {
-    onNone: () => false,
-    onSome: (tab) => !!(tab.url?.startsWith("http://") || tab.url?.startsWith("https://")),
-  });
-
-  if (!isSupported) {
-    if (btn_active) {
-      btn_active.innerText = "Unsupported Page";
-      btn_active.disabled = true;
-      btn_active.style.opacity = "0.5";
-      btn_active.style.cursor = "not-allowed";
-    }
-    if (status_text) {
-      status_text.innerText = "RESTRICTED";
-      status_text.style.color = "var(--text-muted)";
-    }
-  } else {
-    const activeTab = activeTabOption.value;
-    const tabId = activeTab.id;
-    if (tabId) {
-      const key = `bionic_active_${tabId}`;
-      const data = yield* storage.get(key);
-      const bionic_active = !!data[key];
-      yield* updateUI(bionic_active);
-    }
-  }
-});
-
-const handleButtonClick = Effect.fn("handleButtonClick")(function* () {
-  const storage = yield* ChromeStorage;
-  const tabs = yield* ChromeTabs;
-
-  const activeTabOption = yield* tabs.getActiveTab();
-  if (Option.isNone(activeTabOption)) return;
-  const activeTab = activeTabOption.value;
-  const tabId = activeTab.id;
-  if (!tabId) return;
-
-  const url = activeTab.url;
-  const isSupported = url?.startsWith("http://") || url?.startsWith("https://");
-
-  if (!isSupported) return;
-
-  const key = `bionic_active_${tabId}`;
-  const data = yield* storage.get(key);
-  const newState = !data[key];
-
-  yield* storage.set({ [key]: newState });
-
-  yield* tabs.executeScript(tabId, ["src/convert.js"]);
-});
-
-const program = Effect.fn("program")(function* () {
-  yield* initUI();
-  
+const updateUI = (bionicActive: boolean) => {
   if (btn_active) {
-    btn_active.addEventListener("click", () => {
-      Effect.runFork(
-        handleButtonClick().pipe(
-          Effect.provide(ChromeStorageLive),
-          Effect.provide(ChromeTabsLive),
-          Effect.catchAll((err) =>
-            Match.value(err).pipe(
-              Match.tag("StorageError", (e) =>
-                Effect.logError(`Storage transaction failed: ${e.message}`)
-              ),
-              Match.tag("TabError", (e) =>
-                Effect.logError(`Chrome scripting failed: ${e.message}`)
-              ),
-              Match.exhaustive
-            )
-          )
-        )
-      );
-    });
+    btn_active.innerText = bionicActive ? "Disengage" : "Engage Engine";
+    btn_active.classList.toggle("active", bionicActive);
+    btn_active.disabled = togglePending;
+    btn_active.style.opacity = "";
+    btn_active.style.cursor = "";
+  }
+  if (status_text) {
+    status_text.innerText = bionicActive ? "ACTIVE" : "STANDBY";
+    status_text.style.color = bionicActive ? "var(--accent)" : "var(--text-muted)";
+  }
+};
+
+const setUnsupportedUI = () => {
+  supportedPage = false;
+  if (btn_active) {
+    btn_active.innerText = "Unsupported Page";
+    btn_active.disabled = true;
+    btn_active.style.opacity = "0.5";
+    btn_active.style.cursor = "not-allowed";
+  }
+  if (status_text) {
+    status_text.innerText = "RESTRICTED";
+    status_text.style.color = "var(--text-muted)";
+  }
+};
+
+const isSupportedUrl = (url?: string) => Boolean(url && /^https?:\/\//.test(url));
+
+const initUI = async () => {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!isSupportedUrl(activeTab?.url) || typeof activeTab?.id !== "number") {
+    setUnsupportedUI();
+    return;
   }
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "local") {
-      Effect.runFork(
-        Effect.gen(function* () {
-          const tabs = yield* ChromeTabs;
-          const activeTabOption = yield* tabs.getActiveTab();
-          if (Option.isSome(activeTabOption)) {
-            const activeTab = activeTabOption.value;
-            const tabId = activeTab.id;
-            if (tabId) {
-              const key = `bionic_active_${tabId}`;
-              if (changes[key]) {
-                const bionic_active = !!changes[key].newValue;
-                yield* updateUI(bionic_active);
-              }
-            }
-          }
-        }).pipe(
-          Effect.provide(ChromeTabsLive),
-          Effect.catchAll((err) =>
-            Match.value(err).pipe(
-              Match.tag("TabError", (e) =>
-                Effect.logError(`Active tab checking failed: ${e.message}`)
-              ),
-              Match.exhaustive
-            )
-          )
-        )
-      );
+  supportedPage = true;
+  const key = `bionic_active_${activeTab.id}`;
+  const data = await chrome.storage.local.get(key);
+  updateUI(Boolean(data[key]));
+};
+
+btn_active?.addEventListener("click", async () => {
+  if (togglePending) return;
+  togglePending = true;
+  btn_active.disabled = true;
+  try {
+    const response: { supported?: boolean; bionicActive?: boolean; error?: string } =
+      await chrome.runtime.sendMessage({ type: "TOGGLE_BIONIC" });
+    if (response.error) throw new Error(response.error);
+    if (response.supported === false) {
+      setUnsupportedUI();
+      return;
     }
+    if (response.supported) updateUI(Boolean(response.bionicActive));
+  } catch (error) {
+    console.error("Toggle failed:", error);
+  } finally {
+    togglePending = false;
+    if (supportedPage && btn_active) btn_active.disabled = false;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || togglePending || !supportedPage) return;
+  void chrome.tabs.query({ active: true, currentWindow: true }).then(([activeTab]) => {
+    if (typeof activeTab?.id !== "number") return;
+    const change = changes[`bionic_active_${activeTab.id}`];
+    if (change) updateUI(Boolean(change.newValue));
   });
 });
 
-// Run initialization
-Effect.runFork(
-  program().pipe(
-    Effect.provide(ChromeStorageLive),
-    Effect.provide(ChromeTabsLive),
-    Effect.catchAll((err) =>
-      Match.value(err).pipe(
-        Match.tag("StorageError", (e) =>
-          Effect.logError(`Extension initialization storage error: ${e.message}`)
-        ),
-        Match.tag("TabError", (e) =>
-          Effect.logError(`Extension initialization tab error: ${e.message}`)
-        ),
-        Match.exhaustive
-      )
-    )
-  )
-);
+void initUI().catch((error) => {
+  console.error("Popup initialization failed:", error);
+  setUnsupportedUI();
+});
